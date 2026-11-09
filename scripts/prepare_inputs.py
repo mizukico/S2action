@@ -25,14 +25,12 @@ def download(url: str, target: Path, label: str, required: bool, package: bool =
     print(f"Downloading {label}...")
     for attempt in range(1, 4):
         try:
-            # Use the Python API: recent gdown releases no longer expose
-            # --fuzzy in the command-line parser, while download(..., fuzzy=True)
-            # continues to accept ordinary Drive share URLs and file IDs.
+            # gdown v6 removed the fuzzy option entirely. It now extracts
+            # file IDs automatically from standard Drive sharing URLs.
             result = gdown.download(
                 url=url,
                 output=str(target),
                 quiet=False,
-                fuzzy=True,
                 resume=True,
             )
             if result and target.is_file() and target.stat().st_size:
