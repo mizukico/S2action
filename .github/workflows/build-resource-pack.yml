@@ -36,8 +36,6 @@ jobs:
     timeout-minutes: 360
     env:
       S2ARM_REF: ${{ inputs.s2arm_ref }}
-      GAME_URLS: ${{ secrets.GAME_URLS }}
-      PROD_KEYS_B64: ${{ secrets.PROD_KEYS_B64 }}
       TITLE_ID: ${{ inputs.title_id }}
       GAME_NAME: ${{ inputs.game_name }}
       S2A_BEAT_S: "30"
@@ -92,6 +90,10 @@ jobs:
           set -euo pipefail
           echo "Developer directory: $(xcode-select -p)"
           echo "iOS SDK: $(xcrun --sdk iphoneos --show-sdk-version)"
+          if ! xcrun -sdk iphoneos metal --version; then
+            echo "Metal Toolchain is missing; asking Xcode to install it."
+            xcodebuild -downloadComponent MetalToolchain
+          fi
           xcrun -sdk iphoneos metal --version
           dotnet --list-sdks
           python --version
@@ -99,6 +101,9 @@ jobs:
 
       - name: Download game packages and prepare prod.keys
         shell: bash
+        env:
+          GAME_URLS: ${{ secrets.GAME_URLS }}
+          PROD_KEYS_B64: ${{ secrets.PROD_KEYS_B64 }}
         run: |
           set -euo pipefail
           python scripts/prepare_inputs.py "$RUNNER_TEMP/s2a-inputs"
