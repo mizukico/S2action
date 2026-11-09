@@ -1,4 +1,4 @@
-name: Build S2Arm game resource pack
+name: S2Arm Resource Pack - Google Drive
 
 on:
   workflow_dispatch:
@@ -13,11 +13,11 @@ on:
         required: false
         type: string
       game_name:
-        description: "Optional output name (letters, numbers, _ and - only)"
+        description: "Optional output name"
         required: false
         type: string
       upload_artifact:
-        description: "Upload the resource pack to this PUBLIC repository's Actions artifacts"
+        description: "Upload resource pack to this PUBLIC repository's Actions artifacts"
         required: true
         default: false
         type: boolean
@@ -26,7 +26,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: s2arm-resource-pack-${{ github.ref }}
+  group: s2arm-resource-pack-google-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -58,73 +58,58 @@ jobs:
           XCODE_APP="/Applications/Xcode_27.2.app"
           if [[ ! -d "$XCODE_APP/Contents/Developer" ]]; then
             echo "::error::Xcode 27.2 is not installed at $XCODE_APP"
-            echo "Installed Xcode applications:"
             find /Applications -maxdepth 1 -name 'Xcode*.app' -print | sort
             exit 1
           fi
           sudo xcode-select --switch "$XCODE_APP/Contents/Developer"
           ACTUAL_VERSION="$(xcodebuild -version | head -n 1)"
-          echo "Selected developer directory: $(xcode-select -p)"
           echo "$ACTUAL_VERSION"
-          if [[ "$ACTUAL_VERSION" != "Xcode 27.2" ]]; then
-            echo "::error::Expected Xcode 27.2, got: $ACTUAL_VERSION"
-            exit 1
-          fi
+          [[ "$ACTUAL_VERSION" == "Xcode 27.2" ]] || { echo "::error::Expected Xcode 27.2"; exit 1; }
 
       - name: Clone S2Arm upstream
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "$S2ARM_REF" == *$'\n'* || "$S2ARM_REF" == *$'\r'* ]]; then
-            echo "::error::Invalid S2Arm ref"
-            exit 1
-          fi
           git clone --filter=blob:none --depth 1 --branch "$S2ARM_REF" https://github.com/jhaizhou-ops/S2Arm.git "$RUNNER_TEMP/S2Arm"
           echo "S2ARM_DIR=$RUNNER_TEMP/S2Arm" >> "$GITHUB_ENV"
-          echo "S2Arm commit: $(git -C "$RUNNER_TEMP/S2Arm" rev-parse HEAD)"
 
-      - name: Set up Python
+      - name: Set up Python and .NET
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Set up .NET SDK
-        uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.403"
 
-      - name: Install native and Python dependencies
+      - name: Install dependencies
         shell: bash
         run: |
           set -euo pipefail
           command -v zstd >/dev/null 2>&1 || brew install zstd
-          python -m pip install --upgrade pip
-          python -m pip install \
-            -r "$S2ARM_DIR/launchers/macos/requirements-runtime.txt" \
-            -r "$S2ARM_DIR/pack/fonts/requirements.txt"
+          python -m pip install --upgrade pip gdown
+          python -m pip install -r "$S2ARM_DIR/launchers/macos/requirements-runtime.txt" -r "$S2ARM_DIR/pack/fonts/requirements.txt"
 
-      - name: Verify Xcode and Metal toolchain
+      - name: Verify Xcode and Metal
         shell: bash
         run: |
           set -euo pipefail
           xcodebuild -version
-          xcodebuild -version | grep -Fxq "Xcode 27.2"
-          echo "Developer directory: $(xcode-select -p)"
-          echo "iOS SDK: $(xcrun --sdk iphoneos --show-sdk-version)"
-          if ! xcrun -sdk iphoneos metal --version; then
-            echo "Metal Toolchain is missing; asking Xcode to install it."
-            xcodebuild -downloadComponent MetalToolchain
-          fi
+          xcrun --sdk iphoneos --show-sdk-version
+          xcrun -sdk iphoneos metal --version || xcodebuild -downloadComponent MetalToolchain
           xcrun -sdk iphoneos metal --version
           dotnet --list-sdks
           python --version
           zstd --version
 
-      - name: Download game packages and prepare prod.keys
+      - name: Download Google Drive inputs
         shell: bash
         env:
-          GAME_URLS: ${{ secrets.GAME_URLS }}
-          PROD_KEYS: ${{ secrets.PROD_KEYS }}
+          Game_URL: ${{ secrets.Game_URL }}
+          Keys_URL: ${{ secrets.Keys_URL }}
+          Update_URL: ${{ secrets.Update_URL }}
+          DLC_URL: ${{ secrets.DLC_URL }}
+          DLC2_URL: ${{ secrets.DLC2_URL }}
         run: |
           set -euo pipefail
           python scripts/prepare_inputs.py "$RUNNER_TEMP/s2a-inputs"
@@ -136,19 +121,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python scripts/build_resource_pack.py \
-            --upstream "$S2ARM_DIR" \
-            --input "$S2A_INPUT_DIR" \
-            --keys "$S2A_KEYS_FILE" \
-            --output "$RUNNER_TEMP/s2a-output" \
-            --title-id "$TITLE_ID" \
-            --game-name "$GAME_NAME"
+          python scripts/build_resource_pack.py --upstream "$S2ARM_DIR" --input "$S2A_INPUT_DIR" --keys "$S2A_KEYS_FILE" --output "$RUNNER_TEMP/s2a-output" --title-id "$TITLE_ID" --game-name "$GAME_NAME"
 
       - name: Upload resource pack artifact
         if: ${{ success() && inputs.upload_artifact }}
         uses: actions/upload-artifact@v4
         with:
-          name: S2Arm-resource-pack-${{ github.run_number }}
+          name: S2Arm-resource-pack-google-${{ github.run_number }}
           path: ${{ steps.build.outputs.pack_path }}
           if-no-files-found: error
           compression-level: 0
@@ -156,5 +135,4 @@ jobs:
 
       - name: Final disk report
         if: always()
-        shell: bash
         run: df -h /
