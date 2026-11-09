@@ -1,0 +1,197 @@
+name: S2Arm Resource Pack - Baidu Netdisk
+
+on:
+  workflow_dispatch:
+    inputs:
+      s2arm_ref:
+        description: "S2Arm upstream branch, tag, or ref"
+        required: true
+        default: "main"
+        type: string
+      game_path:
+        description: "Baidu Netdisk game directory (recursively downloads game packages)"
+        required: true
+        type: string
+      keys_path:
+        description: "Baidu Netdisk prod.keys file path"
+        required: true
+        default: "/prod.keys"
+        type: string
+      update_path:
+        description: "Optional update package path"
+        required: false
+        default: ""
+        type: string
+      dlc_path:
+        description: "Optional DLC package path"
+        required: false
+        default: ""
+        type: string
+      dlc2_path:
+        description: "Optional second DLC package path"
+        required: false
+        default: ""
+        type: string
+      title_id:
+        description: "Optional 16-character base-game title ID (hex)"
+        required: false
+        type: string
+      game_name:
+        description: "Optional output name"
+        required: false
+        type: string
+      upload_artifact:
+        description: "Upload resource pack to this PUBLIC repository's Actions artifacts"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: s2arm-resource-pack-baidu-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: xcode-27
+    timeout-minutes: 360
+    env:
+      S2ARM_REF: ${{ inputs.s2arm_ref }}
+      TITLE_ID: ${{ inputs.title_id }}
+      GAME_NAME: ${{ inputs.game_name }}
+      S2A_BEAT_S: "30"
+
+    steps:
+      - name: Check out S2action
+        uses: actions/checkout@v4
+
+      - name: Check runner and disk
+        shell: bash
+        run: |
+          set -euo pipefail
+          uname -a
+          sw_vers
+          df -h /
+
+      - name: Select Xcode 27.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          XCODE_APP="/Applications/Xcode_27.2.app"
+          if [[ ! -d "$XCODE_APP/Contents/Developer" ]]; then
+            echo "::error::Xcode 27.2 is not installed at $XCODE_APP"
+            find /Applications -maxdepth 1 -name 'Xcode*.app' -print | sort
+            exit 1
+          fi
+          sudo xcode-select --switch "$XCODE_APP/Contents/Developer"
+          ACTUAL_VERSION="$(xcodebuild -version | head -n 1)"
+          echo "$ACTUAL_VERSION"
+          [[ "$ACTUAL_VERSION" == "Xcode 27.2" ]] || { echo "::error::Expected Xcode 27.2"; exit 1; }
+
+      - name: Clone S2Arm upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none --depth 1 --branch "$S2ARM_REF" https://github.com/jhaizhou-ops/S2Arm.git "$RUNNER_TEMP/S2Arm"
+          echo "S2ARM_DIR=$RUNNER_TEMP/S2Arm" >> "$GITHUB_ENV"
+
+      - name: Set up Python and .NET
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.403"
+
+      - name: Install BaiduPCS-Go
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            arm64|aarch64) ARCH=arm64 ;;
+            x86_64|amd64) ARCH=amd64 ;;
+            *) echo "::error::Unsupported architecture"; exit 1 ;;
+          esac
+          VERSION=v4.0.2
+          mkdir -p "$RUNNER_TEMP/baidupcs-extract"
+          curl -fsSL "https://github.com/qjfoidnh/BaiduPCS-Go/releases/download/$VERSION/BaiduPCS-Go-$VERSION-darwin-osx-$ARCH.zip" -o "$RUNNER_TEMP/baidupcs.zip"
+          unzip -q "$RUNNER_TEMP/baidupcs.zip" -d "$RUNNER_TEMP/baidupcs-extract"
+          BIN="$(find "$RUNNER_TEMP/baidupcs-extract" -type f -name BaiduPCS-Go -print -quit)"
+          test -n "$BIN"
+          chmod +x "$BIN"
+          echo "BAIDUPCS_BIN=$BIN" >> "$GITHUB_ENV"
+
+      - name: Log in to Baidu Netdisk
+        shell: bash
+        env:
+          BDUSS: ${{ secrets.BDUSS }}
+          STOKEN: ${{ secrets.STOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${BDUSS:-}" || -z "${STOKEN:-}" ]]; then
+            echo "::error::Missing repository secrets BDUSS or STOKEN."
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/baidupcs-config"
+          export HOME="$RUNNER_TEMP/baidupcs-config"
+          "$BAIDUPCS_BIN" login "-bduss=$BDUSS" "-stoken=$STOKEN"
+          "$BAIDUPCS_BIN" who
+
+      - name: Install S2Arm dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v zstd >/dev/null 2>&1 || brew install zstd
+          python -m pip install --upgrade pip
+          python -m pip install -r "$S2ARM_DIR/launchers/macos/requirements-runtime.txt" -r "$S2ARM_DIR/pack/fonts/requirements.txt"
+
+      - name: Verify Xcode and Metal
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          xcrun -sdk iphoneos metal --version || xcodebuild -downloadComponent MetalToolchain
+          xcrun -sdk iphoneos metal --version
+          dotnet --list-sdks
+          python --version
+          zstd --version
+
+      - name: Download Baidu Netdisk inputs
+        shell: bash
+        env:
+          game_path: ${{ inputs.game_path }}
+          keys_path: ${{ inputs.keys_path }}
+          update_path: ${{ inputs.update_path }}
+          dlc_path: ${{ inputs.dlc_path }}
+          dlc2_path: ${{ inputs.dlc2_path }}
+        run: |
+          set -euo pipefail
+          export HOME="$RUNNER_TEMP/baidupcs-config"
+          python scripts/prepare_baidu_inputs.py "$BAIDUPCS_BIN" "$RUNNER_TEMP/s2a-inputs"
+          echo "S2A_INPUT_DIR=$RUNNER_TEMP/s2a-inputs/games" >> "$GITHUB_ENV"
+          echo "S2A_KEYS_FILE=$RUNNER_TEMP/s2a-inputs/prod.keys" >> "$GITHUB_ENV"
+
+      - name: Build and verify resource pack
+        id: build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/build_resource_pack.py --upstream "$S2ARM_DIR" --input "$S2A_INPUT_DIR" --keys "$S2A_KEYS_FILE" --output "$RUNNER_TEMP/s2a-output" --title-id "$TITLE_ID" --game-name "$GAME_NAME"
+
+      - name: Upload resource pack artifact
+        if: ${{ success() && inputs.upload_artifact }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: S2Arm-resource-pack-baidu-${{ github.run_number }}
+          path: ${{ steps.build.outputs.pack_path }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+      - name: Final disk report
+        if: always()
+        run: df -h /
