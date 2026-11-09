@@ -31,7 +31,7 @@ concurrency:
 
 jobs:
   build:
-    # Use the Xcode 27 macOS runner label already used for the related CI builds.
+    # Keep the macOS runner label, but explicitly select Xcode 27.2 below.
     runs-on: xcode-27
     timeout-minutes: 360
     env:
@@ -51,6 +51,26 @@ jobs:
           uname -a
           sw_vers
           df -h /
+
+      - name: Select Xcode 27.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          XCODE_APP="/Applications/Xcode_27.2.app"
+          if [[ ! -d "$XCODE_APP/Contents/Developer" ]]; then
+            echo "::error::Xcode 27.2 is not installed at $XCODE_APP"
+            echo "Installed Xcode applications:"
+            find /Applications -maxdepth 1 -name 'Xcode*.app' -print | sort
+            exit 1
+          fi
+          sudo xcode-select --switch "$XCODE_APP/Contents/Developer"
+          ACTUAL_VERSION="$(xcodebuild -version | head -n 1)"
+          echo "Selected developer directory: $(xcode-select -p)"
+          echo "$ACTUAL_VERSION"
+          if [[ "$ACTUAL_VERSION" != "Xcode 27.2" ]]; then
+            echo "::error::Expected Xcode 27.2, got: $ACTUAL_VERSION"
+            exit 1
+          fi
 
       - name: Clone S2Arm upstream
         shell: bash
@@ -88,6 +108,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          xcodebuild -version
+          xcodebuild -version | grep -Fxq "Xcode 27.2"
           echo "Developer directory: $(xcode-select -p)"
           echo "iOS SDK: $(xcrun --sdk iphoneos --show-sdk-version)"
           if ! xcrun -sdk iphoneos metal --version; then
