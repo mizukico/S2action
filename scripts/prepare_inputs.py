@@ -5,7 +5,6 @@ import os, subprocess, sys
 from pathlib import Path
 from urllib.parse import urlsplit
 
-import gdown
 
 ALLOWED = {".nsp", ".xci", ".nsz", ".xcz", ".nup"}
 
@@ -25,15 +24,14 @@ def download(url: str, target: Path, label: str, required: bool, package: bool =
     print(f"Downloading {label}...")
     for attempt in range(1, 4):
         try:
-            # gdown v6 removed the fuzzy option entirely. It now extracts
-            # file IDs automatically from standard Drive sharing URLs.
-            result = gdown.download(
-                url=url,
-                output=str(target),
-                quiet=False,
-                resume=True,
+            # gdown v6 removed --fuzzy. Current versions automatically
+            # extract file IDs from standard Google Drive sharing URLs.
+            subprocess.run(
+                ["gdown", url, "--continue", "-O", str(target)],
+                check=True,
+                stdout=subprocess.DEVNULL,
             )
-            if result and target.is_file() and target.stat().st_size:
+            if target.is_file() and target.stat().st_size:
                 break
         except Exception as exc:
             print(f"{label} download attempt {attempt} failed: {exc}")
