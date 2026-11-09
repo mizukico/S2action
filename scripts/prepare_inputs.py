@@ -5,10 +5,14 @@ import os, subprocess, sys
 from pathlib import Path
 from urllib.parse import urlsplit
 
+import gdown
+
 ALLOWED = {".nsp", ".xci", ".nsz", ".xcz", ".nup"}
+
 
 def fail(message: str) -> None:
     raise SystemExit("ERROR: " + message)
+
 
 def download(url: str, target: Path, label: str, required: bool, package: bool = False) -> None:
     if not url.strip():
@@ -16,21 +20,31 @@ def download(url: str, target: Path, label: str, required: bool, package: bool =
             fail(f"Missing {label} URL secret.")
         print(f"No {label} configured; skipping.")
         return
+
     target.parent.mkdir(parents=True, exist_ok=True)
     print(f"Downloading {label}...")
-    cmd = ["gdown", "--fuzzy", "--continue", url, "-O", str(target)]
     for attempt in range(1, 4):
         try:
-            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
-            if target.is_file() and target.stat().st_size:
+            # Use the Python API: recent gdown releases no longer expose
+            # --fuzzy in the command-line parser, while download(..., fuzzy=True)
+            # continues to accept ordinary Drive share URLs and file IDs.
+            result = gdown.download(
+                url=url,
+                output=str(target),
+                quiet=False,
+                fuzzy=True,
+                resume=True,
+            )
+            if result and target.is_file() and target.stat().st_size:
                 break
-        except subprocess.CalledProcessError:
-            pass
+        except Exception as exc:
+            print(f"{label} download attempt {attempt} failed: {exc}")
         target.unlink(missing_ok=True)
         if attempt < 3:
             print(f"{label} download attempt {attempt} failed; retrying.")
     else:
         fail(f"Failed to download {label} after 3 attempts.")
+
     if package:
         suffix = Path(urlsplit(url).path).suffix.lower()
         if suffix not in ALLOWED:
@@ -47,7 +61,9 @@ def download(url: str, target: Path, label: str, required: bool, package: bool =
         final = target.with_suffix(suffix)
         target.rename(final)
         target = final
+
     print(f"Downloaded {label}: {target.stat().st_size / 1024**3:.2f} GiB")
+
 
 def main() -> None:
     if len(sys.argv) != 2:
@@ -67,6 +83,7 @@ def main() -> None:
         fail("The Keys_URL download is empty.")
     (out / "prod.keys").chmod(0o600)
     print("Prepared game, optional update/DLC packages, and prod.keys.")
+
 
 if __name__ == "__main__":
     main()
