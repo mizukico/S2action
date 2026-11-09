@@ -1,0 +1,139 @@
+name: Build S2Arm game resource pack
+
+on:
+  workflow_dispatch:
+    inputs:
+      s2arm_ref:
+        description: "S2Arm upstream branch, tag, or ref"
+        required: true
+        default: "main"
+        type: string
+      title_id:
+        description: "Optional 16-character base-game title ID (hex)"
+        required: false
+        type: string
+      game_name:
+        description: "Optional output name (letters, numbers, _ and - only)"
+        required: false
+        type: string
+      upload_artifact:
+        description: "Upload the resource pack to this PUBLIC repository's Actions artifacts"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: s2arm-resource-pack-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Use the Xcode 27 macOS runner label already used for the related CI builds.
+    runs-on: xcode-27
+    timeout-minutes: 360
+    env:
+      S2ARM_REF: ${{ inputs.s2arm_ref }}
+      TITLE_ID: ${{ inputs.title_id }}
+      GAME_NAME: ${{ inputs.game_name }}
+      S2A_BEAT_S: "30"
+
+    steps:
+      - name: Check out S2action
+        uses: actions/checkout@v4
+
+      - name: Check runner and disk
+        shell: bash
+        run: |
+          set -euo pipefail
+          uname -a
+          sw_vers
+          df -h /
+
+      - name: Clone S2Arm upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$S2ARM_REF" == *$'\n'* || "$S2ARM_REF" == *$'\r'* ]]; then
+            echo "::error::Invalid S2Arm ref"
+            exit 1
+          fi
+          git clone --filter=blob:none --depth 1 --branch "$S2ARM_REF" https://github.com/jhaizhou-ops/S2Arm.git "$RUNNER_TEMP/S2Arm"
+          echo "S2ARM_DIR=$RUNNER_TEMP/S2Arm" >> "$GITHUB_ENV"
+          echo "S2Arm commit: $(git -C "$RUNNER_TEMP/S2Arm" rev-parse HEAD)"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.403"
+
+      - name: Install native and Python dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v zstd >/dev/null 2>&1 || brew install zstd
+          python -m pip install --upgrade pip
+          python -m pip install \
+            -r "$S2ARM_DIR/launchers/macos/requirements-runtime.txt" \
+            -r "$S2ARM_DIR/pack/fonts/requirements.txt"
+
+      - name: Verify Xcode and Metal toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Developer directory: $(xcode-select -p)"
+          echo "iOS SDK: $(xcrun --sdk iphoneos --show-sdk-version)"
+          if ! xcrun -sdk iphoneos metal --version; then
+            echo "Metal Toolchain is missing; asking Xcode to install it."
+            xcodebuild -downloadComponent MetalToolchain
+          fi
+          xcrun -sdk iphoneos metal --version
+          dotnet --list-sdks
+          python --version
+          zstd --version
+
+      - name: Download game packages and prepare prod.keys
+        shell: bash
+        env:
+          GAME_URLS: ${{ secrets.GAME_URLS }}
+          PROD_KEYS_B64: ${{ secrets.PROD_KEYS_B64 }}
+        run: |
+          set -euo pipefail
+          python scripts/prepare_inputs.py "$RUNNER_TEMP/s2a-inputs"
+          echo "S2A_INPUT_DIR=$RUNNER_TEMP/s2a-inputs/games" >> "$GITHUB_ENV"
+          echo "S2A_KEYS_FILE=$RUNNER_TEMP/s2a-inputs/prod.keys" >> "$GITHUB_ENV"
+
+      - name: Build and verify resource pack
+        id: build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/build_resource_pack.py \
+            --upstream "$S2ARM_DIR" \
+            --input "$S2A_INPUT_DIR" \
+            --keys "$S2A_KEYS_FILE" \
+            --output "$RUNNER_TEMP/s2a-output" \
+            --title-id "$TITLE_ID" \
+            --game-name "$GAME_NAME"
+
+      - name: Upload resource pack artifact
+        if: ${{ success() && inputs.upload_artifact }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: S2Arm-resource-pack-${{ github.run_number }}
+          path: ${{ steps.build.outputs.pack_path }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+      - name: Final disk report
+        if: always()
+        shell: bash
+        run: df -h /
