@@ -218,6 +218,23 @@ jobs:
           set -euo pipefail
           python scripts/build_resource_pack.py --upstream "$S2ARM_DIR" --input "$S2A_INPUT_DIR" --keys "$S2A_KEYS_FILE" --output "$RUNNER_TEMP/s2a-output" --title-id "$TITLE_ID" --game-name "$GAME_NAME"
 
+      - name: Collect and print build diagnostics
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          bash scripts/collect_diagnostics.sh "$RUNNER_TEMP/s2a-output" "$RUNNER_TEMP/s2a-diagnostics"
+
+      - name: Upload build diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: S2Arm-build-diagnostics-baidu-${{ github.run_number }}
+          path: ${{ runner.temp }}/s2a-diagnostics/
+          if-no-files-found: warn
+          compression-level: 6
+          retention-days: 3
+
       - name: Upload resource pack artifact
         if: ${{ success() && inputs.upload_artifact }}
         uses: actions/upload-artifact@v4
