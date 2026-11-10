@@ -41,10 +41,10 @@ for cache_root in "${CACHE_ROOTS[@]}"; do
     mkdir -p "$(dirname "$destination")"
     cp "$file" "$destination"
     echo "Collected: $relative"
-  done < <(find "$cache_root" -type f -size -20M \\
-    \\( -name 'build_env.log' -o -name 'profile_rows.txt' \\
-       -o -name 'direct_lib.log' -o -name 'dsh_batch*.log' \\
-       -o -name 'gl_shaders.log' -o -name 'vk_shaders.log' \\) -print0)
+  done < <(find "$cache_root" -type f -size -20M \
+    \( -name 'build_env.log' -o -name 'profile_rows.txt' \
+       -o -name 'direct_lib.log' -o -name 'dsh_batch*.log' \
+       -o -name 'gl_shaders.log' -o -name 'vk_shaders.log' \) -print0)
 done
 
 REFRESH_LOG="$LOG_DIR/refresh.log"
