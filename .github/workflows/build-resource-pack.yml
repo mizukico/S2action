@@ -51,6 +51,32 @@ jobs:
           sw_vers
           df -h /
 
+      - name: Install and select Bash 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install bash
+          BASH_PREFIX="$(brew --prefix bash)"
+          BASH_BIN="$BASH_PREFIX/bin/bash"
+          test -x "$BASH_BIN"
+          BASH_MAJOR="$("$BASH_BIN" -c 'printf "%s" "${BASH_VERSINFO[0]}"')"
+          if [[ "$BASH_MAJOR" -lt 5 ]]; then
+            echo "::error::Expected Bash 5 or newer, got $("$BASH_BIN" --version | head -n 1)"
+            exit 1
+          fi
+          echo "$(dirname "$BASH_BIN")" >> "$GITHUB_PATH"
+          echo "S2A_BASH=$BASH_BIN" >> "$GITHUB_ENV"
+          echo "Selected $("$BASH_BIN" --version | head -n 1)"
+
+      - name: Verify Bash 5 is active
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Bash executable: $BASH"
+          echo "Bash version: $BASH_VERSION"
+          [[ "${BASH_VERSINFO[0]}" -ge 5 ]] || { echo "::error::Workflow is still running Bash 3.x"; exit 1; }
+          [[ "$(command -v bash)" == "$S2A_BASH" ]] || { echo "::error::PATH does not select the installed Bash 5"; exit 1; }
+
       - name: Select Xcode 27.2
         shell: bash
         run: |
