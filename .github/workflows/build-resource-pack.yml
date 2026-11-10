@@ -164,34 +164,7 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          OUTPUT_DIR="$RUNNER_TEMP/s2a-output"
-          DIAG_DIR="$RUNNER_TEMP/s2a-diagnostics"
-          LOG_DIR="$OUTPUT_DIR/build/logs"
-          mkdir -p "$DIAG_DIR"
-
-          if [[ -d "$LOG_DIR" ]]; then
-            cp -R "$LOG_DIR" "$DIAG_DIR/build-logs"
-          else
-            echo "No upstream build log directory found at: $LOG_DIR"
-          fi
-
-          if [[ -f "$OUTPUT_DIR/events.jsonl" ]]; then
-            cp "$OUTPUT_DIR/events.jsonl" "$DIAG_DIR/events.jsonl"
-          fi
-
-          REFRESH_LOG="$LOG_DIR/refresh.log"
-          if [[ -f "$REFRESH_LOG" ]]; then
-            echo "::group::S2Arm refresh.log (last 300 lines)"
-            tail -n 300 "$REFRESH_LOG"
-            echo "::endgroup::"
-          else
-            echo "refresh.log was not generated."
-            if [[ -d "$LOG_DIR" ]]; then
-              find "$LOG_DIR" -maxdepth 2 -type f -print
-            fi
-          fi
-
-          echo "Diagnostic files staged under: $DIAG_DIR"
+          bash scripts/collect_diagnostics.sh "$RUNNER_TEMP/s2a-output" "$RUNNER_TEMP/s2a-diagnostics"
 
       - name: Upload build diagnostics
         if: ${{ always() }}
