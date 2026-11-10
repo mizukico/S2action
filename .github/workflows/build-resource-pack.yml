@@ -113,8 +113,18 @@ jobs:
         run: |
           set -euo pipefail
           command -v zstd >/dev/null 2>&1 || brew install zstd
+          brew install cmake meson ninja
           python -m pip install --upgrade pip gdown
           python -m pip install -r "$S2ARM_DIR/launchers/macos/requirements-runtime.txt" -r "$S2ARM_DIR/pack/fonts/requirements.txt"
+
+      - name: Prepare C rewriter source dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          REWRITER_DEPS="$S2ARM_DIR/build/rewriter-deps"
+          python "$S2ARM_DIR/runtime/rewriter/prepare_deps.py" "$REWRITER_DEPS"
+          echo "S2A_REWRITER_DEPS=$REWRITER_DEPS" >> "$GITHUB_ENV"
+          python "$S2ARM_DIR/pack/rewriter.py" deps-path
 
       - name: Verify Xcode and Metal
         shell: bash
