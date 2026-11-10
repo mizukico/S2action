@@ -92,6 +92,15 @@ jobs:
           echo "S2A_BASH=$BASH_BIN" >> "$GITHUB_ENV"
           echo "Selected $("$BASH_BIN" --version | head -n 1)"
 
+      - name: Verify Bash 5 is active
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Bash executable: $BASH"
+          echo "Bash version: $BASH_VERSION"
+          [[ "${BASH_VERSINFO[0]}" -ge 5 ]] || { echo "::error::Workflow is still running Bash 3.x"; exit 1; }
+          [[ "$(command -v bash)" == "$S2A_BASH" ]] || { echo "::error::PATH does not select the installed Bash 5"; exit 1; }
+
       - name: Select Xcode 27.2
         shell: bash
         run: |
