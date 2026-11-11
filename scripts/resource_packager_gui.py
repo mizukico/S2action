@@ -247,7 +247,12 @@ def localize_log(message: str, lang: str) -> str:
 
 TITLE_RE = re.compile(r"^[0-9A-Fa-f]{16}$")
 CHUNK = 4 * 1024 * 1024
-CONFIG_PATH = Path(__file__).resolve().with_name("resource_packager_gui.config.json")
+# Store user settings in a writable per-user location instead of beside the
+# script, which may be installed in a read-only directory.
+if os.environ.get("LOCALAPPDATA"):
+    CONFIG_PATH = Path(os.environ["LOCALAPPDATA"]) / "S2Arm" / "resource_packager_gui.config.json"
+else:
+    CONFIG_PATH = Path.home() / ".config" / "S2Arm" / "resource_packager_gui.config.json"
 
 
 class PackError(Exception):
@@ -558,6 +563,8 @@ class App:
         self.output_dir_var = tk.StringVar()
         self.title_var = tk.StringVar()
         self._build()
+        # Persist initial defaults too, including first-launch English.
+        self._save_config()
         self.root.after(150, self._poll)
 
     def _t(self, value):
