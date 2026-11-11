@@ -247,12 +247,13 @@ def localize_log(message: str, lang: str) -> str:
 
 TITLE_RE = re.compile(r"^[0-9A-Fa-f]{16}$")
 CHUNK = 4 * 1024 * 1024
-# Store user settings in a writable per-user location instead of beside the
-# script, which may be installed in a read-only directory.
+# Keep the config beside the script when possible (easy to locate), and
+# fall back to the per-user application-data directory when that location is read-only.
+CONFIG_PATH = Path(__file__).resolve().with_name("resource_packager_gui.config.json")
 if os.environ.get("LOCALAPPDATA"):
-    CONFIG_PATH = Path(os.environ["LOCALAPPDATA"]) / "S2Arm" / "resource_packager_gui.config.json"
+    FALLBACK_CONFIG_PATH = Path(os.environ["LOCALAPPDATA"]) / "S2Arm" / "resource_packager_gui.config.json"
 else:
-    CONFIG_PATH = Path.home() / ".config" / "S2Arm" / "resource_packager_gui.config.json"
+    FALLBACK_CONFIG_PATH = Path.home() / ".config" / "S2Arm" / "resource_packager_gui.config.json"
 
 
 class PackError(Exception):
@@ -634,25 +635,36 @@ class App:
         ttk.Button(parent, text=self._t("浏览…"), command=callback).grid(row=row, column=2, pady=7)
 
     def _load_config(self):
-        try:
-            data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                self.install_var.set(str(data.get("install_root") or self.install_var.get()))
-                saved_lang = data.get("language")
-                if saved_lang in ("zh", "en"):
-                    self.lang = saved_lang
-        except (OSError, json.JSONDecodeError, TypeError):
-            pass
+        for config_path in (CONFIG_PATH, FALLBACK_CONFIG_PATH):
+            try:
+                data = json.loads(config_path.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    self.install_var.set(str(data.get("install_root") or self.install_var.get()))
+                    saved_lang = data.get("language")
+                    if saved_lang in ("zh", "en"):
+                        self.lang = saved_lang
+                    return
+            except (OSError, json.JSONDecodeError, TypeError):
+                continue
 
     def _save_config(self):
         data = {"install_root": self.install_var.get().strip(), "language": self.lang}
-        try:
-            CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-            temp_path = CONFIG_PATH.with_suffix(".tmp")
-            temp_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-            os.replace(temp_path, CONFIG_PATH)
-        except OSError as exc:
-            self._append_log(self._localize_log(f"无法保存路径配置：{exc}"))
+        payload = json.dumps(data, ensure_ascii=False, indent=2)
+        errors = []
+        for config_path in (CONFIG_PATH, FALLBACK_CONFIG_PATH):
+            temp_path = config_path.with_suffix(".tmp")
+            try:
+                config_path.parent.mkdir(parents=True, exist_ok=True)
+                temp_path.write_text(payload, encoding="utf-8")
+                os.replace(temp_path, config_path)
+                return
+            except OSError as exc:
+                errors.append(f"{config_path}: {exc}")
+                try:
+                    temp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+        self._append_log(self._localize_log("无法保存路径配置：" + "；".join(errors)))
 
     def _browse_install(self):
         current = self.install_var.get().strip()
@@ -670,6 +682,7 @@ class App:
             return
         game_dir = Path(path)
         self.game_var.set(str(game_dir))
+        self._save_config()
         try:
             title_id = read_title_id(game_dir)
         except PackError as exc:
@@ -719,6 +732,7 @@ class App:
             messagebox.showerror(self._t("游戏信息错误"), self._localize_log(str(exc)))
             return
         self.title_var.set(title_id)
+        self._save_config()
         output = output_dir / f"{game_dir.name}_pack.zip"
         if output.exists() and not messagebox.askyesno(self._t("覆盖现有 ZIP？"), f"是否覆盖已有文件？\n{output}"):
             return
@@ -747,16 +761,21 @@ class App:
 
     def _cancel(self):
         if self.running and self.cancel_event:
+            self._save_config()
             self.cancel_event.set()
             self.cancel_button.configure(state="disabled")
             self.status.set(self._t("正在取消……"))
             self._append_log(self._localize_log("已请求取消，将在当前处理步骤可中断时停止。"))
 
     def _append_log(self, message):
-        # Localize at the UI boundary, including logs emitted by GUI actions.
+        # Normalize line endings before rendering. Render every embedded line
+        # separately so multiline messages cannot merge with adjacent log entries.
         message = self._localize_log(str(message))
+        message = message.replace("\r\n", "\n").replace("\r", "\n")
         self.log_text.configure(state="normal")
-        self.log_text.insert("end", f"[{time.strftime('%H:%M:%S')}] {message}\n")
+        stamp = time.strftime("%H:%M:%S")
+        for line in message.split("\n"):
+            self.log_text.insert("end", f"[{stamp}] {line}\n")
         self.log_text.see("end")
         self.log_text.configure(state="disabled")
 
