@@ -73,6 +73,7 @@ LOG_TRANSLATIONS = {
     "项，需拼接": " entries; ",
     "个文件": " files to assemble",
     "调用 S2Arm materialize()": "Calling S2Arm materialize()",
+    "提示：正在执行 S2Arm 原生 RomFS 拼接；此阶段无法强制中断。点击取消后，将在原生函数返回或下一次进度回调时停止。": "Note: S2Arm native RomFS assembly is running and cannot be force-stopped. If you click Cancel, cancellation will take effect when the native function returns or the next progress callback is reached.",
     "RomFS 校验通过": "RomFS verification passed",
     "找不到固定资源包目录": "Resource pack directory not found",
     "打包前检查": "Pre-packaging check",
@@ -340,6 +341,7 @@ def prepare_and_materialize(source: Path, stage: Path, rows, native, log, cancel
     # Call the exact upstream Python API: materialize(pack, img_rel, size, sha, say, progress).
     for rel_img, (size, digest) in image_rows.items():
         log(f"调用 S2Arm materialize()：{rel_img}")
+        log("提示：正在执行 S2Arm 原生 RomFS 拼接；此阶段无法强制中断。点击取消后，将在原生函数返回或下一次进度回调时停止。")
 
         def progress(done, name=rel_img, total=size):
             check_cancel(cancel_event)
