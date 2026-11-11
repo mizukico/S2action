@@ -1,0 +1,463 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""S2Arm Resource Packager GUI.
+
+Select the S2Arm installation root and a built game directory. The tool reads
+Title ID from game.json, finds image/ios/pack, materializes RomFS with the
+installed S2Arm Engine/pack/romfs_image.py, then writes <TitleID>资源包.zip.
+The ZIP root is <TitleID>/ so it can be extracted directly into Documents/games.
+Python 3.10+; standard library only.
+"""
+from __future__ import annotations
+
+import hashlib
+import importlib.util
+import json
+import os
+import queue
+import re
+import shutil
+import struct
+import sys
+import tempfile
+import threading
+import time
+import zipfile
+from pathlib import Path, PurePosixPath
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
+
+APP_TITLE = "S2Arm Resource Packager"
+TITLE_RE = re.compile(r"^[0-9A-Fa-f]{16}$")
+CHUNK = 4 * 1024 * 1024
+
+
+class PackError(Exception):
+    pass
+
+
+def read_title_id(game_dir: Path) -> str:
+    path = game_dir / "game.json"
+    if not path.is_file():
+        raise PackError(f"游戏目录缺少 game.json：{path}")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except Exception as exc:
+        raise PackError(f"game.json 无法解析：{exc}")
+    value = data.get("id") if isinstance(data, dict) else None
+    if not isinstance(value, str) or not TITLE_RE.fullmatch(value.strip()):
+        raise PackError("game.json 顶层 id 字段不是有效的 16 位十六进制 Title ID。")
+    return value.strip().upper()
+
+
+def safe_rel(value: str) -> str:
+    value = value.replace("\\", "/")
+    p = PurePosixPath(value)
+    if not value or p.is_absolute() or any(x in ("", ".", "..") for x in p.parts):
+        raise PackError(f"资源索引包含不安全路径：{value!r}")
+    if ":" in p.parts[0]:
+        raise PackError(f"资源索引包含盘符路径：{value!r}")
+    return p.as_posix()
+
+
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        while True:
+            block = f.read(CHUNK)
+            if not block:
+                break
+            h.update(block)
+    return h.hexdigest()
+
+
+def read_index(pack: Path):
+    index_path, manifest_path = pack / "index.tsv", pack / "manifest.json"
+    if not index_path.is_file() or not manifest_path.is_file():
+        raise PackError("image/ios/pack 缺少 index.tsv 或 manifest.json。")
+    raw = index_path.read_bytes()
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+    except Exception as exc:
+        raise PackError(f"manifest.json 无法解析：{exc}")
+    if manifest.get("version") != 2:
+        raise PackError(f"只支持 manifest version 2，当前为 {manifest.get('version')!r}")
+    if hashlib.sha256(raw).hexdigest() != manifest.get("index_sha256"):
+        raise PackError("index.tsv SHA256 与 manifest.json 不一致。")
+    rows, seen = [], set()
+    try:
+        for line_no, line in enumerate(raw.decode("utf-8").splitlines(), 1):
+            if not line:
+                continue
+            cols = line.split("\t")
+            if len(cols) != 3:
+                raise PackError(f"index.tsv 第 {line_no} 行不是三列格式。")
+            rel, size_text, digest = safe_rel(cols[0]), cols[1], cols[2].strip().lower()
+            try:
+                size = int(size_text)
+            except ValueError:
+                raise PackError(f"index.tsv 第 {line_no} 行文件大小无效。")
+            if size < 0 or not re.fullmatch(r"[0-9a-f]{64}", digest):
+                raise PackError(f"index.tsv 第 {line_no} 行大小或 SHA256 无效：{rel}")
+            if rel in seen:
+                raise PackError(f"index.tsv 有重复路径：{rel}")
+            seen.add(rel)
+            rows.append((rel, size, digest))
+    except UnicodeDecodeError as exc:
+        raise PackError(f"index.tsv 不是 UTF-8：{exc}")
+    return rows, manifest
+
+
+def load_native(install_root: Path):
+    engine = install_root / "Engine"
+    script = engine / "pack" / "romfs_image.py"
+    tools = engine / "tools"
+    if not script.is_file() or not (tools / "sha256_fast.py").is_file():
+        raise PackError(
+            "找不到 S2Arm 原生脚本或依赖。请选择 S2Arm 项目安装目录，"
+            "其中应有 Engine/pack/romfs_image.py 和 Engine/tools/sha256_fast.py。"
+        )
+    if str(tools) not in sys.path:
+        sys.path.insert(0, str(tools))
+    spec = importlib.util.spec_from_file_location("s2arm_romfs_image", script)
+    if spec is None or spec.loader is None:
+        raise PackError(f"无法加载原生脚本：{script}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    if not callable(getattr(module, "parse_index", None)) or not callable(
+        getattr(module, "materialize", None)
+    ):
+        raise PackError("romfs_image.py 缺少 parse_index() 或 materialize()。")
+    return module
+
+
+def link_or_copy(src: Path, dst: Path):
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.link(src, dst)
+    except OSError:
+        shutil.copy2(src, dst)
+
+
+def read_imgmap(path: Path, expected_count: int):
+    data = path.read_bytes()
+    if len(data) < 20 or data[:8] != b"S2ARIM01":
+        raise PackError(f"imgmap 格式错误：{path}")
+    total, count = struct.unpack_from("<qi", data, 8)
+    if count != expected_count or len(data) != 20 + count * 8:
+        raise PackError(f"imgmap 文件数或长度不匹配：{path}")
+    offsets = struct.unpack_from(f"<{count}q", data, 20)
+    return total, offsets
+
+
+def prepare_and_materialize(source: Path, stage: Path, rows, native, log):
+    image_rows = {p: (size, digest) for p, size, digest in rows if p.endswith("romfs.img")}
+    if not image_rows:
+        raise PackError("index.tsv 中没有 romfs.img，无法拼接 RomFS。")
+
+    shutil.copy2(source / "index.tsv", stage / "index.tsv")
+    shutil.copy2(source / "manifest.json", stage / "manifest.json")
+
+    # Copy/link all indexed files except romfs.img, which is generated below.
+    for i, (rel, size, _digest) in enumerate(rows, 1):
+        if rel.endswith("romfs.img"):
+            continue
+        src = source.joinpath(*PurePosixPath(rel).parts)
+        if not src.is_file():
+            raise PackError(f"资源包缺少索引文件：{rel}")
+        if src.stat().st_size != size:
+            raise PackError(f"文件大小与 index.tsv 不符：{rel}")
+        link_or_copy(src, stage.joinpath(*PurePosixPath(rel).parts))
+        if i % 500 == 0:
+            log(f"已准备索引文件：{i}/{len(rows)}")
+
+    # Upstream parse_index() returns (total_size, [(offset, size, relative_path), ...]).
+    prefixes = sorted({p[:-len("romfs.img")] for p in image_rows})
+    for prefix in prefixes:
+        idx = source.joinpath(*PurePosixPath(prefix + "romfs.s2aidx").parts)
+        imgmap = source.joinpath(*PurePosixPath(prefix + "romfs.imgmap").parts)
+        if not idx.is_file() or not imgmap.is_file():
+            raise PackError(f"{prefix}缺少 romfs.s2aidx 或 romfs.imgmap。")
+        _index_total, files = native.parse_index(str(idx))
+        map_total, offsets = read_imgmap(imgmap, len(files))
+        expected_size, _ = image_rows[prefix + "romfs.img"]
+        if map_total != expected_size:
+            raise PackError(f"{prefix}imgmap 镜像长度与 index.tsv 不一致。")
+
+        needed = [entry[2] for entry, offset in zip(files, offsets) if offset >= 0]
+        log(f"{prefix or '主程序'}RomFS：索引 {len(files)} 项，需拼接 {len(needed)} 个文件")
+        for rel in needed:
+            rel = safe_rel(rel)
+            fragment = source.joinpath(
+                *PurePosixPath(prefix + "romfs.files/" + rel).parts
+            )
+            if not fragment.is_file():
+                raise PackError(f"RomFS 分片缺失：{prefix}romfs.files/{rel}")
+            target = stage.joinpath(
+                *PurePosixPath(prefix + "romfs.files/" + rel).parts
+            )
+            link_or_copy(fragment, target)
+
+    # Call the exact upstream Python API: materialize(pack, img_rel, size, sha, say, progress).
+    for rel_img, (size, digest) in image_rows.items():
+        log(f"调用 S2Arm materialize()：{rel_img}")
+
+        def progress(done, name=rel_img, total=size):
+            log(f"  {name}: {done / (1024 ** 3):.2f} / {total / (1024 ** 3):.2f} GiB")
+
+        native.materialize(str(stage), rel_img, size, digest, say=log, progress=progress)
+        image = stage.joinpath(*PurePosixPath(rel_img).parts)
+        if not image.is_file() or image.stat().st_size != size:
+            raise PackError(f"拼接后的镜像大小不正确：{rel_img}")
+        if sha256_file(image) != digest:
+            raise PackError(f"拼接后的镜像 SHA256 不正确：{rel_img}")
+        log(f"RomFS 校验通过：{rel_img}")
+
+
+def build_zip(game_dir: Path, install_root: Path, output_dir: Path, log):
+    title_id = read_title_id(game_dir)
+    source = game_dir / "image" / "ios" / "pack"
+    if not source.is_dir():
+        raise PackError(f"找不到固定资源包目录：{source}")
+    rows, manifest = read_index(source)
+    native = load_native(install_root)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output = output_dir / f"{title_id}资源包.zip"
+
+    with tempfile.TemporaryDirectory(prefix="s2arm_packager_", dir=str(output_dir)) as temp:
+        stage = Path(temp) / "资源包"
+        stage.mkdir()
+        log(f"游戏目录：{game_dir}")
+        log(f"Title ID：{title_id}（game.json）")
+        log(f"资源包目录：{source}")
+        log(f"manifest version：{manifest.get('version')}；索引文件：{len(rows)}")
+        prepare_and_materialize(source, stage, rows, native, log)
+
+        # Check every indexed path exists and has its indexed size.
+        for rel, size, _digest in rows:
+            path = stage.joinpath(*PurePosixPath(rel).parts)
+            if not path.is_file():
+                raise PackError(f"打包前文件缺失：{rel}")
+            if path.stat().st_size != size:
+                raise PackError(f"打包前文件大小不符：{rel}")
+
+        if output.exists():
+            output.unlink()
+        root = f"{title_id}/资源包"
+        count = 0
+        log(f"生成 ZIP（不压缩，保留 ZIP64）：{output}")
+        with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as zf:
+            zf.writestr(f"{title_id}/", b"")
+            zf.writestr(root + "/", b"")
+            for path in sorted(stage.rglob("*")):
+                if not path.is_file():
+                    continue
+                relative = path.relative_to(stage)
+                # Fragments are temporary inputs to materialize; romfs.img replaces them.
+                if "romfs.files" in relative.parts:
+                    continue
+                rel = relative.as_posix()
+                zf.write(path, f"{root}/{rel}")
+                count += 1
+                if count % 500 == 0:
+                    log(f"ZIP 已写入 {count} 个文件")
+
+        log("检查 ZIP 完整性……")
+        with zipfile.ZipFile(output, "r") as zf:
+            bad = zf.testzip()
+            if bad:
+                raise PackError(f"ZIP 完整性检查失败：{bad}")
+            names = set(zf.namelist())
+            required = {f"{root}/index.tsv", f"{root}/manifest.json"}
+            missing = required - names
+            if missing:
+                raise PackError("ZIP 缺少必要文件：" + ", ".join(sorted(missing)))
+            for rel, _, _ in rows:
+                if f"{root}/{rel}" not in names:
+                    raise PackError(f"ZIP 缺少索引文件：{rel}")
+            if any("romfs.files" in PurePosixPath(name).parts for name in names):
+                raise PackError("最终 ZIP 不应包含 romfs.files 分片目录。")
+        log(f"完成：{count} 个文件；ZIP 大小 {output.stat().st_size / (1024 ** 3):.2f} GiB")
+    return output
+
+
+class App:
+    def __init__(self, root):
+        self.root = root
+        self.root.title(APP_TITLE)
+        self.root.geometry("900x680")
+        self.root.minsize(760, 580)
+        self.events = queue.Queue()
+        self.running = False
+        self.install_var = tk.StringVar()
+        self.game_var = tk.StringVar()
+        self.output_dir_var = tk.StringVar()
+        self.title_var = tk.StringVar()
+        self._build()
+        self.root.after(150, self._poll)
+
+    def _build(self):
+        outer = ttk.Frame(self.root, padding=16)
+        outer.pack(fill="both", expand=True)
+        ttk.Label(outer, text=APP_TITLE, font=("Microsoft YaHei UI", 18, "bold")).pack(anchor="w")
+        ttk.Label(
+            outer,
+            text="读取 game.json 的 Title ID，自动拼接 RomFS，并生成可直接解压到 iPhone games 文件夹的 ZIP",
+            foreground="#666",
+        ).pack(anchor="w", pady=(2, 14))
+
+        form = ttk.Frame(outer)
+        form.pack(fill="x")
+        self._path_row(form, 0, "S2Arm 项目安装目录", self.install_var, self._browse_install)
+        self._path_row(form, 1, "已构建游戏目录（游戏名这一层）", self.game_var, self._browse_game)
+        self._path_row(form, 2, "ZIP 输出目录（默认游戏目录）", self.output_dir_var, self._browse_output)
+        ttk.Label(form, text="自动读取的 Title ID").grid(row=3, column=0, sticky="w", pady=7)
+        ttk.Entry(form, textvariable=self.title_var, state="readonly").grid(
+            row=3, column=1, sticky="ew", padx=8, pady=7
+        )
+        ttk.Label(form, text="来源：所选游戏目录/game.json → id", foreground="#777").grid(
+            row=3, column=2, sticky="w", pady=7
+        )
+        form.columnconfigure(1, weight=1)
+
+        ttk.Separator(outer).pack(fill="x", pady=12)
+        ttk.Label(outer, text="执行日志", font=("Microsoft YaHei UI", 10, "bold")).pack(anchor="w")
+        self.log_text = tk.Text(outer, height=19, wrap="word", font=("Consolas", 9), state="disabled")
+        self.log_text.pack(fill="both", expand=True, pady=(6, 10))
+        self.progress = ttk.Progressbar(outer, mode="indeterminate")
+        self.progress.pack(fill="x")
+        bottom = ttk.Frame(outer)
+        bottom.pack(fill="x", pady=(10, 0))
+        self.status = tk.StringVar(value="等待选择目录")
+        ttk.Label(bottom, textvariable=self.status).pack(side="left")
+        self.run_button = ttk.Button(bottom, text="开始拼接并生成 ZIP", command=self._start)
+        self.run_button.pack(side="right")
+
+    def _path_row(self, parent, row, label, variable, callback):
+        ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", pady=7)
+        ttk.Entry(parent, textvariable=variable).grid(row=row, column=1, sticky="ew", padx=8, pady=7)
+        ttk.Button(parent, text="浏览…", command=callback).grid(row=row, column=2, pady=7)
+
+    def _browse_install(self):
+        path = filedialog.askdirectory(title="选择 S2Arm 项目安装目录（例如 E:\\ProjectIOS\\S2Arm）")
+        if path:
+            self.install_var.set(path)
+
+    def _browse_game(self):
+        path = filedialog.askdirectory(title="选择游戏名目录（例如 E:\\nisshell\\S2\\games\\the 1st）")
+        if not path:
+            return
+        game_dir = Path(path)
+        self.game_var.set(str(game_dir))
+        try:
+            title_id = read_title_id(game_dir)
+        except PackError as exc:
+            self.title_var.set("")
+            self.output_dir_var.set("")
+            messagebox.showerror("无法读取游戏信息", str(exc))
+            return
+        self.title_var.set(title_id)
+        self.output_dir_var.set(str(game_dir))
+        pack_dir = game_dir / "image" / "ios" / "pack"
+        self._log(f"Title ID：{title_id}（来自 game.json）")
+        if pack_dir.is_dir():
+            self._log(f"已定位资源包目录：{pack_dir}")
+        else:
+            self._log(f"未找到预期资源包目录：{pack_dir}")
+            messagebox.showwarning("未找到资源包", f"缺少固定目录：\n{pack_dir}")
+
+    def _browse_output(self):
+        current = self.output_dir_var.get().strip()
+        path = filedialog.askdirectory(
+            title="选择 ZIP 输出目录（默认是游戏目录）",
+            initialdir=current if current and Path(current).is_dir() else None,
+        )
+        if path:
+            self.output_dir_var.set(path)
+
+    def _log(self, message):
+        self.events.put(("log", str(message)))
+
+    def _start(self):
+        if self.running:
+            return
+        install_root = Path(self.install_var.get().strip())
+        game_text = self.game_var.get().strip()
+        output_text = self.output_dir_var.get().strip()
+        if not install_root.is_dir() or not game_text or not Path(game_text).is_dir() or not output_text:
+            messagebox.showwarning("目录不完整", "请选择 S2Arm 项目目录、游戏名目录和 ZIP 输出目录。")
+            return
+        game_dir = Path(game_text)
+        output_dir = Path(output_text)
+        if not (game_dir / "image" / "ios" / "pack").is_dir():
+            messagebox.showerror("资源包目录不存在", f"找不到：{game_dir / 'image' / 'ios' / 'pack'}")
+            return
+        try:
+            title_id = read_title_id(game_dir)
+        except PackError as exc:
+            messagebox.showerror("游戏信息错误", str(exc))
+            return
+        self.title_var.set(title_id)
+        output = output_dir / f"{title_id}资源包.zip"
+        if output.exists() and not messagebox.askyesno("覆盖现有 ZIP？", f"是否覆盖已有文件？\n{output}"):
+            return
+
+        self.running = True
+        self.run_button.configure(state="disabled")
+        self.progress.start(12)
+        self.status.set("正在处理……")
+        self._append_log("========== 开始 ==========")
+        self._append_log(f"ZIP 文件名：{output.name}")
+        self._append_log(f"ZIP 输出路径：{output}")
+        self._append_log(f"Title ID：{title_id}")
+
+        def worker():
+            try:
+                result = build_zip(game_dir, install_root, output_dir, self._log)
+                self.events.put(("done", str(result)))
+            except Exception as exc:
+                self.events.put(("error", str(exc)))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _append_log(self, message):
+        self.log_text.configure(state="normal")
+        self.log_text.insert("end", f"[{time.strftime('%H:%M:%S')}] {message}\n")
+        self.log_text.see("end")
+        self.log_text.configure(state="disabled")
+
+    def _poll(self):
+        try:
+            while True:
+                kind, value = self.events.get_nowait()
+                if kind == "log":
+                    self._append_log(value)
+                elif kind in ("done", "error"):
+                    self.running = False
+                    self.progress.stop()
+                    self.run_button.configure(state="normal")
+                    if kind == "done":
+                        self.status.set("完成")
+                        self._append_log("========== 全部完成 ==========")
+                        messagebox.showinfo("打包完成", f"资源包已生成：\n{value}")
+                    else:
+                        self.status.set("失败")
+                        self._append_log("错误：" + value)
+                        messagebox.showerror("打包失败", value)
+        except queue.Empty:
+            pass
+        self.root.after(150, self._poll)
+
+
+def main():
+    root = tk.Tk()
+    try:
+        ttk.Style().theme_use("vista")
+    except tk.TclError:
+        pass
+    App(root)
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    main()
