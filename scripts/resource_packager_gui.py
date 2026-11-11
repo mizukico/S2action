@@ -88,10 +88,11 @@ def safe_rel(value: str) -> str:
     return p.as_posix()
 
 
-def sha256_file(path: Path) -> str:
+def sha256_file(path: Path, cancel_event=None) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
         while True:
+            check_cancel(cancel_event)
             block = f.read(CHUNK)
             if not block:
                 break
@@ -159,12 +160,20 @@ def load_native(install_root: Path):
     return module
 
 
-def link_or_copy(src: Path, dst: Path):
+def link_or_copy(src: Path, dst: Path, cancel_event=None):
+    check_cancel(cancel_event)
     dst.parent.mkdir(parents=True, exist_ok=True)
     try:
         os.link(src, dst)
     except OSError:
-        shutil.copy2(src, dst)
+        with src.open("rb") as source, dst.open("wb") as target:
+            while True:
+                check_cancel(cancel_event)
+                block = source.read(CHUNK)
+                if not block:
+                    break
+                target.write(block)
+        shutil.copystat(src, dst)
 
 
 def read_imgmap(path: Path, expected_count: int):
@@ -196,7 +205,7 @@ def prepare_and_materialize(source: Path, stage: Path, rows, native, log, cancel
             raise PackError(f"资源包缺少索引文件：{rel}")
         if src.stat().st_size != size:
             raise PackError(f"文件大小与 index.tsv 不符：{rel}")
-        link_or_copy(src, stage.joinpath(*PurePosixPath(rel).parts))
+        link_or_copy(src, stage.joinpath(*PurePosixPath(rel).parts), cancel_event)
         if i % 500 == 0:
             log(f"已准备索引文件：{i}/{len(rows)}")
 
@@ -226,7 +235,7 @@ def prepare_and_materialize(source: Path, stage: Path, rows, native, log, cancel
             target = stage.joinpath(
                 *PurePosixPath(prefix + "romfs.files/" + rel).parts
             )
-            link_or_copy(fragment, target)
+            link_or_copy(fragment, target, cancel_event)
 
     # Call the exact upstream Python API: materialize(pack, img_rel, size, sha, say, progress).
     for rel_img, (size, digest) in image_rows.items():
@@ -240,7 +249,7 @@ def prepare_and_materialize(source: Path, stage: Path, rows, native, log, cancel
         image = stage.joinpath(*PurePosixPath(rel_img).parts)
         if not image.is_file() or image.stat().st_size != size:
             raise PackError(f"拼接后的镜像大小不正确：{rel_img}")
-        if sha256_file(image) != digest:
+        if sha256_file(image, cancel_event) != digest:
             raise PackError(f"拼接后的镜像 SHA256 不正确：{rel_img}")
         log(f"RomFS 校验通过：{rel_img}")
 
@@ -318,9 +327,15 @@ def build_zip(game_dir: Path, install_root: Path, output_dir: Path, log, cancel_
                 check_cancel(cancel_event)
                 if i % 500 == 0:
                     log(f"ZIP 检查：{i}/{len(names)}")
-            bad = zf.testzip()
-            if bad:
-                raise PackError(f"ZIP 完整性检查失败：{bad}")
+            for i, name in enumerate(names, 1):
+                check_cancel(cancel_event)
+                if name.endswith("/"):
+                    continue
+                with zf.open(name, "r") as member:
+                    while member.read(CHUNK):
+                        check_cancel(cancel_event)
+                if i % 100 == 0:
+                    log(f"ZIP 完整性校验：{i}/{len(names)}")
             name_set = set(names)
             required = {f"{root}/index.tsv", f"{root}/manifest.json"}
             missing = required - name_set
