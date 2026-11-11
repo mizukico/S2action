@@ -98,6 +98,20 @@ LOG_TRANSLATIONS = {
     "ZIP 文件名": "ZIP filename",
     "ZIP 输出路径": "ZIP output path",
     "错误": "Error",
+    "第 ": "line ",
+    " 行": "",
+    "不是三列格式": "does not contain exactly three columns",
+    "文件大小无效": "has an invalid file size",
+    "大小或 SHA256 无效": "has an invalid size or SHA256",
+    "SHA256 不正确": "SHA256 is incorrect",
+    "SHA256 不一致": "SHA256 does not match",
+    "镜像长度": "image size",
+    "索引": "index",
+    "需拼接": "to assemble",
+    "校验通过": "verification passed",
+    "检查": "Checking",
+    "正在": "In progress: ",
+    "无法保存路径配置": "Unable to save path configuration",
     "资源包已生成": "Resource pack created",
     "无法保存路径配置": "Unable to save configuration",
     "游戏目录缺少 game.json": "Game folder is missing game.json",
@@ -540,7 +554,7 @@ class App:
             temp_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
             os.replace(temp_path, CONFIG_PATH)
         except OSError as exc:
-            self._append_log(f"无法保存路径配置：{exc}")
+            self._append_log(self._localize_log(f"无法保存路径配置：{exc}"))
 
     def _browse_install(self):
         current = self.install_var.get().strip()
