@@ -441,7 +441,7 @@ class App:
             messagebox.showerror(self._t("游戏信息错误"), str(exc))
             return
         self.title_var.set(title_id)
-        output = output_dir / f"{title_id}资源包.zip"
+        output = output_dir / f"{game_dir.name}_pack.zip"
         if output.exists() and not messagebox.askyesno(self._t("覆盖现有 ZIP？"), f"是否覆盖已有文件？\n{output}"):
             return
 
