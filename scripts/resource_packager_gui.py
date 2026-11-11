@@ -563,6 +563,14 @@ class App:
         self._load_config()
         self.output_dir_var = tk.StringVar()
         self.title_var = tk.StringVar()
+        # Restore the last selected built-game directory and its derived fields.
+        saved_game_dir = Path(self.game_var.get().strip()) if self.game_var.get().strip() else None
+        if saved_game_dir and saved_game_dir.is_dir():
+            self.output_dir_var.set(str(saved_game_dir))
+            try:
+                self.title_var.set(read_title_id(saved_game_dir))
+            except PackError:
+                pass
         self._build()
         # Persist initial defaults too, including first-launch English.
         self._save_config()
@@ -640,6 +648,7 @@ class App:
                 data = json.loads(config_path.read_text(encoding="utf-8"))
                 if isinstance(data, dict):
                     self.install_var.set(str(data.get("install_root") or self.install_var.get()))
+                    self.game_var.set(str(data.get("game_dir") or ""))
                     saved_lang = data.get("language")
                     if saved_lang in ("zh", "en"):
                         self.lang = saved_lang
@@ -648,7 +657,11 @@ class App:
                 continue
 
     def _save_config(self):
-        data = {"install_root": self.install_var.get().strip(), "language": self.lang}
+        data = {
+            "install_root": self.install_var.get().strip(),
+            "game_dir": self.game_var.get().strip(),
+            "language": self.lang,
+        }
         payload = json.dumps(data, ensure_ascii=False, indent=2)
         errors = []
         for config_path in (CONFIG_PATH, FALLBACK_CONFIG_PATH):
