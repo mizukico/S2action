@@ -56,117 +56,154 @@ def tr(value: str, lang: str = "zh") -> str:
     return TEXT.get(lang, {}).get(value, value)
 
 
+# Explicit translations for stable messages. Dynamic paths, values and exception
+# details are handled by the patterns below; unknown upstream text is preserved.
 LOG_TRANSLATIONS = {
     "游戏目录": "Game directory",
     "Title ID": "Title ID",
-    "来自 game.json": "from game.json",
     "资源包目录": "Resource pack directory",
     "manifest version": "Manifest version",
     "索引文件": "indexed files",
     "已准备索引文件": "Prepared indexed files",
-    "缺少 romfs.s2aidx 或 romfs.imgmap": "Missing romfs.s2aidx or romfs.imgmap",
-    "imgmap 格式错误": "Invalid imgmap format",
-    "imgmap 文件数或长度不匹配": "imgmap file count or length mismatch",
-    "imgmap 镜像长度与 index.tsv 不一致": "imgmap image size does not match index.tsv",
     "主程序": "Main program",
-    "RomFS：索引": "RomFS: indexed ",
-    "项，需拼接": " entries; ",
-    "个文件": " files to assemble",
-    "调用 S2Arm materialize()": "Calling S2Arm materialize()",
-    "提示：正在执行 S2Arm 原生 RomFS 拼接；此阶段无法强制中断。点击取消后，将在原生函数返回或下一次进度回调时停止。": "Note: S2Arm native RomFS assembly is running and cannot be force-stopped. If you click Cancel, cancellation will take effect when the native function returns or the next progress callback is reached.",
     "RomFS 校验通过": "RomFS verification passed",
-    "找不到固定资源包目录": "Resource pack directory not found",
-    "打包前检查": "Pre-packaging check",
-    "打包前文件缺失": "File missing before packaging",
-    "打包前文件大小不符": "File size mismatch before packaging",
-    "生成 ZIP（不压缩，保留 ZIP64）": "Creating ZIP (stored, ZIP64 enabled)",
-    "ZIP 已写入": "ZIP entries written",
-    "检查 ZIP 完整性": "Checking ZIP integrity",
-    "ZIP 检查": "ZIP check",
-    "ZIP 完整性校验": "ZIP integrity verification",
-    "ZIP 缺少必要文件": "ZIP is missing required files",
-    "ZIP 缺少索引文件": "ZIP is missing indexed file",
-    "最终 ZIP 不应包含 romfs.files 分片目录": "Final ZIP must not contain romfs.files fragments",
     "完成": "Completed",
-    "个文件；ZIP 大小": " files; ZIP size",
-    "已定位资源包目录": "Resource pack directory found",
-    "未找到预期资源包目录": "Expected resource pack directory not found",
-    "收到取消请求，将在当前处理步骤可中断时停止。": "Cancellation requested. The operation will stop at the next safe checkpoint.",
-    "已请求取消，将在当前处理步骤可中断时停止。": "Cancellation requested. The operation will stop at the next safe checkpoint.",
-    "========== 开始 ==========": "========== START ==========",
-    "========== 全部完成 ==========": "========== COMPLETED ==========",
-    "========== 已取消 ==========": "========== CANCELLED ==========",
-    "ZIP 文件名": "ZIP filename",
-    "ZIP 输出路径": "ZIP output path",
     "错误": "Error",
-    "第 ": "line ",
-    " 行": "",
-    "不是三列格式": "does not contain exactly three columns",
-    "文件大小无效": "has an invalid file size",
-    "大小或 SHA256 无效": "has an invalid size or SHA256",
-    "SHA256 不正确": "SHA256 is incorrect",
-    "SHA256 不一致": "SHA256 does not match",
-    "镜像长度": "image size",
-    "索引": "index",
-    "需拼接": "to assemble",
-    "校验通过": "verification passed",
-    "检查": "Checking",
-    "正在": "In progress: ",
-    "无法保存路径配置": "Unable to save path configuration",
-    "资源包已生成": "Resource pack created",
-    "无法保存路径配置": "Unable to save configuration",
-    "游戏目录缺少 game.json": "Game folder is missing game.json",
-    "game.json 无法解析": "Unable to parse game.json",
-    "game.json 顶层 id 字段不是有效的 16 位十六进制 Title ID": "The top-level id field in game.json is not a valid 16-digit hexadecimal Title ID",
-    "资源索引包含不安全路径": "Resource index contains an unsafe path",
-    "资源索引包含盘符路径": "Resource index contains a drive-letter path",
-    "缺少 index.tsv 或 manifest.json": "Missing index.tsv or manifest.json",
-    "manifest.json 无法解析": "Unable to parse manifest.json",
-    "只支持 manifest version 2，当前为": "Only manifest version 2 is supported; current version:",
-    "index.tsv SHA256 与 manifest.json 不一致": "index.tsv SHA256 does not match manifest.json",
-    "不是三列格式": "does not contain exactly three columns",
-    "文件大小无效": "has an invalid file size",
-    "大小或 SHA256 无效": "has an invalid size or SHA256",
-    "有重复路径": "contains a duplicate path",
-    "不是 UTF-8": "is not UTF-8",
-    "找不到 S2Arm 原生脚本或依赖": "S2Arm native scripts or dependencies not found",
-    "请选择 S2Arm 项目安装目录": "Select the S2Arm installation directory",
-    "其中应有": "It must contain",
-    "无法加载原生脚本": "Unable to load native script",
-    "缺少 parse_index() 或 materialize()": "Missing parse_index() or materialize()",
-    "没有 romfs.img，无法拼接 RomFS": "No romfs.img found in index.tsv; cannot assemble RomFS",
-    "资源包缺少索引文件": "Resource pack is missing indexed file",
-    "文件大小与 index.tsv 不符": "File size does not match index.tsv",
-    "RomFS 分片缺失": "RomFS fragment is missing",
-    "拼接后的镜像大小不正确": "Assembled image has an incorrect size",
-    "拼接后的镜像 SHA256 不正确": "Assembled image SHA256 is incorrect",
-    "用户已取消打包": "Packaging was cancelled by the user",
-    "找不到": "Not found",
-    "缺少固定目录": "Required directory is missing",
-    "缺少": "Missing",
-    "无法读取游戏信息": "Unable to read game information",
-    "无法读取游戏信息": "Unable to read game information",
 }
-
 
 def localize_log(message: str, lang: str) -> str:
     if lang != "en":
         return message
 
-    # Dynamic lines emitted when the user selects a game directory.
-    match = re.fullmatch(r"Title ID：([0-9A-Fa-f]{16})（来自 game\\.json）", message)
-    if match:
-        return f"Title ID: {match.group(1)} (from game.json)"
-    match = re.fullmatch(r"已定位资源包目录：(.*)", message)
-    if match:
-        return f"Resource pack directory found: {match.group(1)}"
-    match = re.fullmatch(r"未找到预期资源包目录：(.*)", message)
-    if match:
-        return f"Expected resource pack directory not found: {match.group(1)}"
+    # Exact/dynamic messages emitted by this application.
+    patterns = (
+        (r"Title ID：[0-9A-Fa-f]{16}（来自 game\.json）",
+         lambda m: "Title ID: " + re.search(r"[0-9A-Fa-f]{16}", m.group(0)).group(0) + " (from game.json)"),
+        (r"Title ID：([0-9A-Fa-f]{16})", lambda m: f"Title ID: {m.group(1)}"),
+        (r"已定位资源包目录：(.*)", lambda m: f"Resource pack directory found: {m.group(1)}"),
+        (r"未找到预期资源包目录：(.*)", lambda m: f"Expected resource pack directory not found: {m.group(1)}"),
+        (r"游戏目录：(.*)", lambda m: f"Game directory: {m.group(1)}"),
+        (r"资源包目录：(.*)", lambda m: f"Resource pack directory: {m.group(1)}"),
+        (r"找不到固定资源包目录：(.*)", lambda m: f"Required resource pack directory not found: {m.group(1)}"),
+        (r"资源包目录不存在：(.*)", lambda m: f"Resource pack directory does not exist: {m.group(1)}"),
+        (r"游戏目录缺少 game\.json：(.*)", lambda m: f"Game directory is missing game.json: {m.group(1)}"),
+        (r"game\.json 无法解析：(.*)", lambda m: f"Unable to parse game.json: {m.group(1)}"),
+        (r"index\.tsv 第 (\d+) 行不是三列格式。", lambda m: f"index.tsv line {m.group(1)} does not contain exactly three columns."),
+        (r"index\.tsv 第 (\d+) 行文件大小无效。", lambda m: f"Invalid file size on index.tsv line {m.group(1)}."),
+        (r"index\.tsv 第 (\d+) 行大小或 SHA256 无效：(.*)", lambda m: f"Invalid size or SHA256 on index.tsv line {m.group(1)}: {m.group(2)}"),
+        (r"资源索引包含不安全路径：(.*)", lambda m: f"Resource index contains an unsafe path: {m.group(1)}"),
+        (r"资源索引包含盘符路径：(.*)", lambda m: f"Resource index contains a drive-letter path: {m.group(1)}"),
+        (r"资源包缺少索引文件：(.*)", lambda m: f"Indexed resource file is missing from the pack: {m.group(1)}"),
+        (r"文件大小与 index\.tsv 不符：(.*)", lambda m: f"File size does not match index.tsv: {m.group(1)}"),
+        (r"RomFS 分片缺失：(.*)", lambda m: f"RomFS fragment is missing: {m.group(1)}"),
+        (r"拼接后的镜像大小不正确：(.*)", lambda m: f"Assembled image has an incorrect size: {m.group(1)}"),
+        (r"拼接后的镜像 SHA256 不正确：(.*)", lambda m: f"Assembled image SHA256 is incorrect: {m.group(1)}"),
+        (r"找不到 S2Arm 原生脚本或依赖。请选择 S2Arm 项目安装目录，其中应有 Engine/pack/romfs_image\.py 和 Engine/tools/sha256_fast\.py。",
+         lambda m: "S2Arm native scripts or dependencies were not found. Select the S2Arm installation directory containing Engine/pack/romfs_image.py and Engine/tools/sha256_fast.py."),
+        (r"无法加载原生脚本：(.*)", lambda m: f"Unable to load the native script: {m.group(1)}"),
+        (r"无法保存路径配置：(.*)", lambda m: f"Unable to save path configuration: {m.group(1)}"),
+        (r"找不到：(.*)", lambda m: f"Not found: {m.group(1)}"),
+        (r"缺少固定目录：\s*(.*)", lambda m: f"Required directory is missing:\n{m.group(1)}"),
+        (r"错误：", lambda m: "Error:"),
+    )
+    for pattern, render in patterns:
+        match = re.fullmatch(pattern, message, flags=re.DOTALL)
+        if match:
+            return render(match)
 
-    for source, target in sorted(LOG_TRANSLATIONS.items(), key=lambda item: len(item[0]), reverse=True):
-        message = message.replace(source, target)
-    return message
+    exact = {
+        "========== 开始 ==========": "========== START ==========",
+        "========== 全部完成 ==========": "========== COMPLETED ==========",
+        "========== 已取消 ==========": "========== CANCELLED ==========",
+        "提示：正在执行 S2Arm 原生 RomFS 拼接；此阶段无法强制中断。点击取消后，将在原生函数返回或下一次进度回调时停止。":
+            "Note: S2Arm native RomFS assembly cannot be force-stopped. If you click Cancel, it will take effect when the native function returns or the next progress callback is reached.",
+        "收到取消请求，将在当前处理步骤可中断时停止。": "Cancellation requested. The operation will stop at the next safe checkpoint.",
+        "已请求取消，将在当前处理步骤可中断时停止。": "Cancellation requested. The operation will stop at the next safe checkpoint.",
+        "用户已取消打包。": "Packaging was cancelled by the user.",
+        "无法读取游戏信息": "Unable to read game information",
+        "未找到资源包": "Resource pack not found",
+        "目录不完整": "Missing directories",
+        "请选择 S2Arm 项目目录、游戏名目录和 ZIP 输出目录。": "Select the S2Arm installation, game, and ZIP output directories.",
+        "资源包目录不存在": "Resource pack directory not found",
+        "游戏信息错误": "Invalid game information",
+        "覆盖现有 ZIP？": "Overwrite existing ZIP?",
+        "是否覆盖已有文件？": "Overwrite the existing file?",
+        "ZIP 检查": "ZIP check",
+        "检查 ZIP 完整性……": "Checking ZIP integrity...",
+        "生成 ZIP（不压缩，保留 ZIP64）": "Creating ZIP (stored, ZIP64 enabled)",
+        "调用 S2Arm materialize()": "Calling S2Arm materialize()",
+        "RomFS 校验通过": "RomFS verification passed",
+        "打包前检查": "Pre-packaging check",
+        "打包前文件缺失": "File missing before packaging",
+        "打包前文件大小不符": "File size mismatch before packaging",
+        "ZIP 已写入": "ZIP entries written",
+        "ZIP 完整性校验": "ZIP integrity verification",
+        "ZIP 缺少必要文件": "ZIP is missing required files",
+        "ZIP 缺少索引文件": "ZIP is missing an indexed file",
+        "最终 ZIP 不应包含 romfs.files 分片目录。": "The final ZIP must not contain romfs.files fragment directories.",
+        "不是 UTF-8": "is not UTF-8",
+        "有重复路径": "contains a duplicate path",
+        "SHA256 不一致": "SHA256 does not match",
+        "SHA256 不正确": "SHA256 is incorrect",
+        "index.tsv SHA256 与 manifest.json 不一致": "index.tsv SHA256 does not match manifest.json.",
+        "manifest.json 无法解析": "Unable to parse manifest.json",
+        "imgmap 格式错误": "Invalid imgmap format",
+        "imgmap 文件数或长度不匹配": "imgmap file count or length mismatch",
+        "没有 romfs.img，无法拼接 RomFS": "No romfs.img found in index.tsv; cannot assemble RomFS.",
+        "只支持 manifest version 2": "Only manifest version 2 is supported",
+        "缺少 index.tsv 或 manifest.json": "Missing index.tsv or manifest.json",
+        "缺少 parse_index() 或 materialize()": "Missing parse_index() or materialize()",
+    }
+    if message in exact:
+        return exact[message]
+
+    # Structured progress lines produced by this script.
+    match = re.fullmatch(r"(.*)RomFS：索引 (\d+) 项，需拼接 (\d+) 个文件", message)
+    if match:
+        prefix = match.group(1)
+        prefix = "Main program " if prefix == "主程序" else prefix
+        return f"{prefix}RomFS: {match.group(2)} indexed entries; {match.group(3)} files to assemble"
+    match = re.fullmatch(r"已准备索引文件：(\d+)/(\d+)", message)
+    if match:
+        return f"Prepared indexed files: {match.group(1)}/{match.group(2)}"
+    match = re.fullmatch(r"打包前检查：(\d+)/(\d+)", message)
+    if match:
+        return f"Pre-packaging check: {match.group(1)}/{match.group(2)}"
+    match = re.fullmatch(r"ZIP 已写入 (\d+) 个文件", message)
+    if match:
+        return f"ZIP entries written: {match.group(1)} files"
+    match = re.fullmatch(r"ZIP 检查：(\d+)/(\d+)", message)
+    if match:
+        return f"ZIP check: {match.group(1)}/{match.group(2)}"
+    match = re.fullmatch(r"ZIP 完整性校验：(\d+)/(\d+)", message)
+    if match:
+        return f"ZIP integrity verification: {match.group(1)}/{match.group(2)}"
+    match = re.fullmatch(r"生成 ZIP（不压缩，保留 ZIP64）：(.*)", message)
+    if match:
+        return f"Creating ZIP (stored, ZIP64 enabled): {match.group(1)}"
+    match = re.fullmatch(r"ZIP 文件名：(.*)", message)
+    if match:
+        return f"ZIP filename: {match.group(1)}"
+    match = re.fullmatch(r"ZIP 输出路径：(.*)", message)
+    if match:
+        return f"ZIP output path: {match.group(1)}"
+    match = re.fullmatch(r"完成：(\d+) 个文件；ZIP 大小 (.*)", message)
+    if match:
+        return f"Completed: {match.group(1)} files; ZIP size {match.group(2)}"
+
+    # Native S2Arm logs: translate only recognized, stable phrases. Do not
+    # perform broad substring replacement that can corrupt paths or values.
+    native_exact = {
+        "正在拼接 RomFS": "Assembling RomFS",
+        "RomFS 拼接完成": "RomFS assembly completed",
+        "开始拼接 RomFS": "Starting RomFS assembly",
+        "校验通过": "Verification passed",
+        "正在校验": "Verifying",
+        "正在处理": "Processing",
+        "已完成": "Completed",
+    }
+    return native_exact.get(message, message)
+
 
 TITLE_RE = re.compile(r"^[0-9A-Fa-f]{16}$")
 CHUNK = 4 * 1024 * 1024
