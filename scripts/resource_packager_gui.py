@@ -191,6 +191,13 @@ def localize_log(message: str, lang: str) -> str:
     if match:
         return f"Completed: {match.group(1)} files; ZIP size {match.group(2)}"
 
+    match = re.fullmatch(r"manifest version：([^；]+)；索引文件：(\d+)", message)
+    if match:
+        return f"Manifest version: {match.group(1)}; indexed files: {match.group(2)}"
+    match = re.fullmatch(r"资源包已生成：\s*(.*)", message, flags=re.DOTALL)
+    if match:
+        return f"Resource pack created:\n{match.group(1)}"
+
     # Native S2Arm logs: translate only recognized, stable phrases. Do not
     # perform broad substring replacement that can corrupt paths or values.
     native_exact = {
@@ -628,7 +635,7 @@ class App:
         except PackError as exc:
             self.title_var.set("")
             self.output_dir_var.set("")
-            messagebox.showerror(self._t("无法读取游戏信息"), str(exc))
+            messagebox.showerror(self._t("无法读取游戏信息"), self._localize_log(str(exc)))
             return
         self.title_var.set(title_id)
         self.output_dir_var.set(str(game_dir))
@@ -638,7 +645,7 @@ class App:
             self._log(self._localize_log(f"已定位资源包目录：{pack_dir}"))
         else:
             self._log(self._localize_log(f"未找到预期资源包目录：{pack_dir}"))
-            messagebox.showwarning(self._t("未找到资源包"), f"缺少固定目录：\n{pack_dir}")
+            messagebox.showwarning(self._t("未找到资源包"), self._localize_log(f"缺少固定目录：\n{pack_dir}"))
 
     def _browse_output(self):
         current = self.output_dir_var.get().strip()
@@ -664,12 +671,12 @@ class App:
         game_dir = Path(game_text)
         output_dir = Path(output_text)
         if not (game_dir / "image" / "ios" / "pack").is_dir():
-            messagebox.showerror(self._t("资源包目录不存在"), f"找不到：{game_dir / 'image' / 'ios' / 'pack'}")
+            messagebox.showerror(self._t("资源包目录不存在"), self._localize_log(f"找不到：{game_dir / 'image' / 'ios' / 'pack'}"))
             return
         try:
             title_id = read_title_id(game_dir)
         except PackError as exc:
-            messagebox.showerror(self._t("游戏信息错误"), str(exc))
+            messagebox.showerror(self._t("游戏信息错误"), self._localize_log(str(exc)))
             return
         self.title_var.set(title_id)
         output = output_dir / f"{game_dir.name}_pack.zip"
@@ -727,7 +734,7 @@ class App:
                     if kind == "done":
                         self.status.set(self._t("完成"))
                         self._append_log(self._localize_log("========== 全部完成 =========="))
-                        messagebox.showinfo(self._t("打包完成"), f"资源包已生成：\n{value}")
+                        messagebox.showinfo(self._t("打包完成"), self._localize_log(f"资源包已生成：\n{value}"))
                     elif kind == "cancelled":
                         self.status.set(self._t("已取消"))
                         self._append_log(self._localize_log("========== 已取消 =========="))
