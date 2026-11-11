@@ -321,6 +321,7 @@ class App:
         self.running = False
         self.install_var = tk.StringVar(value=r"E:\ProjectIOS\S2Arm")
         self.library_var = tk.StringVar(value=str(Path.home() / "S2Arm" / "games"))
+        self.lang = "zh"
         self.game_var = tk.StringVar()
         self._load_config()
         self.output_dir_var = tk.StringVar()
@@ -333,6 +334,7 @@ class App:
 
     def _switch_language(self, _event=None):
         self.lang = "en" if self.lang_combo.get() == "English" else "zh"
+        self._save_config()
         for child in self.root.winfo_children():
             child.destroy()
         self._build()
@@ -395,12 +397,16 @@ class App:
             if isinstance(data, dict):
                 self.install_var.set(str(data.get("install_root") or self.install_var.get()))
                 self.library_var.set(str(data.get("game_library_root") or self.library_var.get()))
+                saved_lang = data.get("language")
+                if saved_lang in ("zh", "en"):
+                    self.lang = saved_lang
         except (OSError, json.JSONDecodeError, TypeError):
             pass
 
     def _save_config(self):
         data = {"install_root": self.install_var.get().strip(),
-                "game_library_root": self.library_var.get().strip()}
+                "game_library_root": self.library_var.get().strip(),
+                "language": self.lang}
         try:
             CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
             temp_path = CONFIG_PATH.with_suffix(".tmp")
