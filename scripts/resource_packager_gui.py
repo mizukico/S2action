@@ -4,7 +4,7 @@
 
 Select the S2Arm installation root and a built game directory. The tool reads
 Title ID from game.json, finds image/ios/pack, materializes RomFS with the
-installed S2Arm Engine/pack/romfs_image.py, then writes <TitleID>资源包.zip.
+installed S2Arm Engine/pack/romfs_image.py, then writes <GameName>_pack.zip.
 The ZIP root is <TitleID>/ so it can be extracted directly into Documents/games.
 Python 3.10+; standard library only.
 """
@@ -28,6 +28,33 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 APP_TITLE = "S2Arm Resource Packager"
+
+TEXT = {
+    "zh": {},
+    "en": {
+        "读取 game.json 的 Title ID，自动拼接 RomFS，并生成可直接解压到 iPhone games 文件夹的 ZIP": "Read the Title ID from game.json, materialize RomFS, and create a ZIP ready for the iPhone games folder.",
+        "S2Arm 项目安装目录": "S2Arm installation directory",
+        "已构建游戏目录（游戏名这一层）": "Built game directory (game-name folder)",
+        "ZIP 输出目录（默认游戏目录）": "ZIP output directory (defaults to game folder)",
+        "自动读取的 Title ID": "Detected Title ID",
+        "来源：所选游戏目录/game.json → id": "Source: selected game folder/game.json → id",
+        "执行日志": "Execution log", "等待选择目录": "Select the directories to begin",
+        "开始拼接并生成 ZIP": "Materialize RomFS and create ZIP", "浏览…": "Browse...",
+        "选择 S2Arm 项目安装目录（例如 E:\\\\ProjectIOS\\\\S2Arm）": "Select the S2Arm installation directory",
+        "选择游戏名目录（例如 E:\\\\nisshell\\\\S2\\\\games\\\\the 1st）": "Select the built game folder",
+        "选择 ZIP 输出目录（默认是游戏目录）": "Select ZIP output directory",
+        "无法读取游戏信息": "Unable to read game information", "未找到资源包": "Resource pack not found",
+        "目录不完整": "Missing directories", "请选择 S2Arm 项目目录、游戏名目录和 ZIP 输出目录。": "Select the S2Arm installation, game, and ZIP output directories.",
+        "资源包目录不存在": "Resource pack directory not found", "游戏信息错误": "Invalid game information",
+        "覆盖现有 ZIP？": "Overwrite existing ZIP?", "是否覆盖已有文件？": "Overwrite the existing file?",
+        "正在处理……": "Processing...", "完成": "Completed", "失败": "Failed",
+        "打包完成": "Packaging complete", "资源包已生成：": "Resource pack created:", "打包失败": "Packaging failed"
+    }
+}
+
+def tr(value: str, lang: str = "zh") -> str:
+    return TEXT.get(lang, {}).get(value, value)
+
 TITLE_RE = re.compile(r"^[0-9A-Fa-f]{16}$")
 CHUNK = 4 * 1024 * 1024
 
@@ -222,7 +249,7 @@ def build_zip(game_dir: Path, install_root: Path, output_dir: Path, log):
     rows, manifest = read_index(source)
     native = load_native(install_root)
     output_dir.mkdir(parents=True, exist_ok=True)
-    output = output_dir / f"{title_id}资源包.zip"
+    output = output_dir / f"{game_dir.name}_pack.zip"
 
     with tempfile.TemporaryDirectory(prefix="s2arm_packager_", dir=str(output_dir)) as temp:
         stage = Path(temp) / "资源包"
@@ -284,6 +311,7 @@ def build_zip(game_dir: Path, install_root: Path, output_dir: Path, log):
 class App:
     def __init__(self, root):
         self.root = root
+        self.lang = "zh"
         self.root.title(APP_TITLE)
         self.root.geometry("900x680")
         self.root.minsize(760, 580)
@@ -296,13 +324,28 @@ class App:
         self._build()
         self.root.after(150, self._poll)
 
+    def _t(self, value):
+        return tr(value, self.lang)
+
+    def _switch_language(self, _event=None):
+        self.lang = "en" if self.lang_combo.get() == "English" else "zh"
+        for child in self.root.winfo_children():
+            child.destroy()
+        self._build()
+
     def _build(self):
         outer = ttk.Frame(self.root, padding=16)
         outer.pack(fill="both", expand=True)
-        ttk.Label(outer, text=APP_TITLE, font=("Microsoft YaHei UI", 18, "bold")).pack(anchor="w")
+        top = ttk.Frame(outer)
+        top.pack(fill="x")
+        ttk.Label(top, text=APP_TITLE, font=("Microsoft YaHei UI", 18, "bold")).pack(side="left", anchor="w")
+        self.lang_combo = ttk.Combobox(top, state="readonly", width=16, values=("简体中文", "English"))
+        self.lang_combo.set("简体中文" if self.lang == "zh" else "English")
+        self.lang_combo.pack(side="right")
+        self.lang_combo.bind("<<ComboboxSelected>>", self._switch_language)
         ttk.Label(
             outer,
-            text="读取 game.json 的 Title ID，自动拼接 RomFS，并生成可直接解压到 iPhone games 文件夹的 ZIP",
+            text=self._t("读取 game.json 的 Title ID，自动拼接 RomFS，并生成可直接解压到 iPhone games 文件夹的 ZIP"),
             foreground="#666",
         ).pack(anchor="w", pady=(2, 14))
 
@@ -311,32 +354,32 @@ class App:
         self._path_row(form, 0, "S2Arm 项目安装目录", self.install_var, self._browse_install)
         self._path_row(form, 1, "已构建游戏目录（游戏名这一层）", self.game_var, self._browse_game)
         self._path_row(form, 2, "ZIP 输出目录（默认游戏目录）", self.output_dir_var, self._browse_output)
-        ttk.Label(form, text="自动读取的 Title ID").grid(row=3, column=0, sticky="w", pady=7)
+        ttk.Label(form, text=self._t("自动读取的 Title ID")).grid(row=3, column=0, sticky="w", pady=7)
         ttk.Entry(form, textvariable=self.title_var, state="readonly").grid(
             row=3, column=1, sticky="ew", padx=8, pady=7
         )
-        ttk.Label(form, text="来源：所选游戏目录/game.json → id", foreground="#777").grid(
+        ttk.Label(form, text=self._t("来源：所选游戏目录/game.json → id"), foreground="#777").grid(
             row=3, column=2, sticky="w", pady=7
         )
         form.columnconfigure(1, weight=1)
 
         ttk.Separator(outer).pack(fill="x", pady=12)
-        ttk.Label(outer, text="执行日志", font=("Microsoft YaHei UI", 10, "bold")).pack(anchor="w")
+        ttk.Label(outer, text=self._t("执行日志"), font=("Microsoft YaHei UI", 10, "bold")).pack(anchor="w")
         self.log_text = tk.Text(outer, height=19, wrap="word", font=("Consolas", 9), state="disabled")
         self.log_text.pack(fill="both", expand=True, pady=(6, 10))
         self.progress = ttk.Progressbar(outer, mode="indeterminate")
         self.progress.pack(fill="x")
         bottom = ttk.Frame(outer)
         bottom.pack(fill="x", pady=(10, 0))
-        self.status = tk.StringVar(value="等待选择目录")
+        self.status = tk.StringVar(value=self._t("等待选择目录"))
         ttk.Label(bottom, textvariable=self.status).pack(side="left")
-        self.run_button = ttk.Button(bottom, text="开始拼接并生成 ZIP", command=self._start)
+        self.run_button = ttk.Button(bottom, text=self._t("开始拼接并生成 ZIP"), command=self._start)
         self.run_button.pack(side="right")
 
     def _path_row(self, parent, row, label, variable, callback):
-        ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", pady=7)
+        ttk.Label(parent, text=self._t(label)).grid(row=row, column=0, sticky="w", pady=7)
         ttk.Entry(parent, textvariable=variable).grid(row=row, column=1, sticky="ew", padx=8, pady=7)
-        ttk.Button(parent, text="浏览…", command=callback).grid(row=row, column=2, pady=7)
+        ttk.Button(parent, text=self._t("浏览…"), command=callback).grid(row=row, column=2, pady=7)
 
     def _browse_install(self):
         path = filedialog.askdirectory(title="选择 S2Arm 项目安装目录（例如 E:\\ProjectIOS\\S2Arm）")
@@ -354,7 +397,7 @@ class App:
         except PackError as exc:
             self.title_var.set("")
             self.output_dir_var.set("")
-            messagebox.showerror("无法读取游戏信息", str(exc))
+            messagebox.showerror(self._t("无法读取游戏信息"), str(exc))
             return
         self.title_var.set(title_id)
         self.output_dir_var.set(str(game_dir))
@@ -364,12 +407,12 @@ class App:
             self._log(f"已定位资源包目录：{pack_dir}")
         else:
             self._log(f"未找到预期资源包目录：{pack_dir}")
-            messagebox.showwarning("未找到资源包", f"缺少固定目录：\n{pack_dir}")
+            messagebox.showwarning(self._t("未找到资源包"), f"缺少固定目录：\n{pack_dir}")
 
     def _browse_output(self):
         current = self.output_dir_var.get().strip()
         path = filedialog.askdirectory(
-            title="选择 ZIP 输出目录（默认是游戏目录）",
+            title=self._t("选择 ZIP 输出目录（默认是游戏目录）"),
             initialdir=current if current and Path(current).is_dir() else None,
         )
         if path:
@@ -385,27 +428,27 @@ class App:
         game_text = self.game_var.get().strip()
         output_text = self.output_dir_var.get().strip()
         if not install_root.is_dir() or not game_text or not Path(game_text).is_dir() or not output_text:
-            messagebox.showwarning("目录不完整", "请选择 S2Arm 项目目录、游戏名目录和 ZIP 输出目录。")
+            messagebox.showwarning(self._t("目录不完整"), self._t("请选择 S2Arm 项目目录、游戏名目录和 ZIP 输出目录。"))
             return
         game_dir = Path(game_text)
         output_dir = Path(output_text)
         if not (game_dir / "image" / "ios" / "pack").is_dir():
-            messagebox.showerror("资源包目录不存在", f"找不到：{game_dir / 'image' / 'ios' / 'pack'}")
+            messagebox.showerror(self._t("资源包目录不存在"), f"找不到：{game_dir / 'image' / 'ios' / 'pack'}")
             return
         try:
             title_id = read_title_id(game_dir)
         except PackError as exc:
-            messagebox.showerror("游戏信息错误", str(exc))
+            messagebox.showerror(self._t("游戏信息错误"), str(exc))
             return
         self.title_var.set(title_id)
         output = output_dir / f"{title_id}资源包.zip"
-        if output.exists() and not messagebox.askyesno("覆盖现有 ZIP？", f"是否覆盖已有文件？\n{output}"):
+        if output.exists() and not messagebox.askyesno(self._t("覆盖现有 ZIP？"), f"是否覆盖已有文件？\n{output}"):
             return
 
         self.running = True
         self.run_button.configure(state="disabled")
         self.progress.start(12)
-        self.status.set("正在处理……")
+        self.status.set(self._t("正在处理……"))
         self._append_log("========== 开始 ==========")
         self._append_log(f"ZIP 文件名：{output.name}")
         self._append_log(f"ZIP 输出路径：{output}")
@@ -437,13 +480,13 @@ class App:
                     self.progress.stop()
                     self.run_button.configure(state="normal")
                     if kind == "done":
-                        self.status.set("完成")
+                        self.status.set(self._t("完成"))
                         self._append_log("========== 全部完成 ==========")
-                        messagebox.showinfo("打包完成", f"资源包已生成：\n{value}")
+                        messagebox.showinfo(self._t("打包完成"), f"资源包已生成：\n{value}")
                     else:
-                        self.status.set("失败")
+                        self.status.set(self._t("失败"))
                         self._append_log("错误：" + value)
-                        messagebox.showerror("打包失败", value)
+                        messagebox.showerror(self._t("打包失败"), value)
         except queue.Empty:
             pass
         self.root.after(150, self._poll)
