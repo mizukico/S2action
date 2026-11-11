@@ -313,7 +313,7 @@ def build_zip(game_dir: Path, install_root: Path, output_dir: Path, log):
 class App:
     def __init__(self, root):
         self.root = root
-        self.lang = "zh"
+        self.lang = "en"
         self.root.title(APP_TITLE)
         self.root.geometry("900x680")
         self.root.minsize(760, 580)
