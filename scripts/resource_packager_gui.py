@@ -114,6 +114,17 @@ def localize_log(message: str, lang: str) -> str:
         (r"文件大小无效", lambda m: "Invalid file size"),
         (r"大小或 SHA256 无效：(.*)", lambda m: f"Invalid size or SHA256: {m.group(1)}"),
         (r"找不到 S2Arm 原生脚本或依赖.*", lambda m: "S2Arm native scripts or dependencies were not found. Select the S2Arm installation directory containing Engine/pack/romfs_image.py and Engine/tools/sha256_fast.py."),
+        (r"game\.json 顶层 id 字段不是有效的 16 位十六进制 Title ID。", lambda m: "The top-level id field in game.json is not a valid 16-digit hexadecimal Title ID."),
+        (r"image/ios/pack 缺少 index\.tsv 或 manifest\.json。", lambda m: "image/ios/pack is missing index.tsv or manifest.json."),
+        (r"index\.tsv 中没有 romfs\.img，无法拼接 RomFS。", lambda m: "No romfs.img entry was found in index.tsv; cannot assemble RomFS."),
+        (r"romfs_image\.py 缺少 parse_index\(\) 或 materialize\(\)。", lambda m: "romfs_image.py is missing parse_index() or materialize()."),
+        (r"manifest\.json 无法解析：(.*)", lambda m: f"Unable to parse manifest.json: {m.group(1)}"),
+        (r"index\.tsv SHA256 与 manifest\.json 不一致。", lambda m: "index.tsv SHA256 does not match manifest.json."),
+        (r"打包前文件缺失：(.*)", lambda m: f"File is missing before packaging: {m.group(1)}"),
+        (r"打包前文件大小不符：(.*)", lambda m: f"File size mismatch before packaging: {m.group(1)}"),
+        (r"ZIP 缺少必要文件：(.*)", lambda m: f"ZIP is missing required files: {m.group(1)}"),
+        (r"ZIP 缺少索引文件：(.*)", lambda m: f"ZIP is missing indexed file: {m.group(1)}"),
+        (r"RomFS 校验通过：(.*)", lambda m: f"RomFS verification passed: {m.group(1)}"),
         (r"错误：", lambda m: "Error:"),
     )
     for pattern, render in patterns:
