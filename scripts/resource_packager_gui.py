@@ -34,6 +34,7 @@ TEXT = {
     "en": {
         "读取 game.json 的 Title ID，自动拼接 RomFS，并生成可直接解压到 iPhone games 文件夹的 ZIP": "Read the Title ID from game.json, materialize RomFS, and create a ZIP ready for the iPhone games folder.",
         "S2Arm 项目安装目录": "S2Arm installation directory",
+        "游戏库根目录": "Game library root directory",
         "已构建游戏目录（游戏名这一层）": "Built game directory (game-name folder)",
         "ZIP 输出目录（默认游戏目录）": "ZIP output directory (defaults to game folder)",
         "自动读取的 Title ID": "Detected Title ID",
@@ -57,6 +58,7 @@ def tr(value: str, lang: str = "zh") -> str:
 
 TITLE_RE = re.compile(r"^[0-9A-Fa-f]{16}$")
 CHUNK = 4 * 1024 * 1024
+CONFIG_PATH = Path(__file__).resolve().with_name("resource_packager_gui.config.json")
 
 
 class PackError(Exception):
@@ -317,8 +319,10 @@ class App:
         self.root.minsize(760, 580)
         self.events = queue.Queue()
         self.running = False
-        self.install_var = tk.StringVar()
+        self.install_var = tk.StringVar(value=r"E:\ProjectIOS\S2Arm")
+        self.library_var = tk.StringVar(value=str(Path.home() / "S2Arm" / "games"))
         self.game_var = tk.StringVar()
+        self._load_config()
         self.output_dir_var = tk.StringVar()
         self.title_var = tk.StringVar()
         self._build()
@@ -351,15 +355,16 @@ class App:
 
         form = ttk.Frame(outer)
         form.pack(fill="x")
-        self._path_row(form, 0, "S2Arm 项目安装目录", self.install_var, self._browse_install)
-        self._path_row(form, 1, "已构建游戏目录（游戏名这一层）", self.game_var, self._browse_game)
-        self._path_row(form, 2, "ZIP 输出目录（默认游戏目录）", self.output_dir_var, self._browse_output)
-        ttk.Label(form, text=self._t("自动读取的 Title ID")).grid(row=3, column=0, sticky="w", pady=7)
+        self._path_row(form, 0, "S2Arm 项目安装目录", self.install_var, self._browse_install, persist=True)
+        self._path_row(form, 1, "游戏库根目录", self.library_var, self._browse_library, persist=True)
+        self._path_row(form, 2, "已构建游戏目录（游戏名这一层）", self.game_var, self._browse_game)
+        self._path_row(form, 3, "ZIP 输出目录（默认游戏目录）", self.output_dir_var, self._browse_output)
+        ttk.Label(form, text=self._t("自动读取的 Title ID")).grid(row=4, column=0, sticky="w", pady=7)
         ttk.Entry(form, textvariable=self.title_var, state="readonly").grid(
-            row=3, column=1, sticky="ew", padx=8, pady=7
+            row=4, column=1, sticky="ew", padx=8, pady=7
         )
         ttk.Label(form, text=self._t("来源：所选游戏目录/game.json → id"), foreground="#777").grid(
-            row=3, column=2, sticky="w", pady=7
+            row=4, column=2, sticky="w", pady=7
         )
         form.columnconfigure(1, weight=1)
 
@@ -376,18 +381,54 @@ class App:
         self.run_button = ttk.Button(bottom, text=self._t("开始拼接并生成 ZIP"), command=self._start)
         self.run_button.pack(side="right")
 
-    def _path_row(self, parent, row, label, variable, callback):
+    def _path_row(self, parent, row, label, variable, callback, persist=False):
         ttk.Label(parent, text=self._t(label)).grid(row=row, column=0, sticky="w", pady=7)
-        ttk.Entry(parent, textvariable=variable).grid(row=row, column=1, sticky="ew", padx=8, pady=7)
+        entry = ttk.Entry(parent, textvariable=variable)
+        entry.grid(row=row, column=1, sticky="ew", padx=8, pady=7)
+        if persist:
+            entry.bind("<FocusOut>", lambda _event: self._save_config())
         ttk.Button(parent, text=self._t("浏览…"), command=callback).grid(row=row, column=2, pady=7)
 
+    def _load_config(self):
+        try:
+            data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                self.install_var.set(str(data.get("install_root") or self.install_var.get()))
+                self.library_var.set(str(data.get("game_library_root") or self.library_var.get()))
+        except (OSError, json.JSONDecodeError, TypeError):
+            pass
+
+    def _save_config(self):
+        data = {"install_root": self.install_var.get().strip(),
+                "game_library_root": self.library_var.get().strip()}
+        try:
+            CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            temp_path = CONFIG_PATH.with_suffix(".tmp")
+            temp_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            os.replace(temp_path, CONFIG_PATH)
+        except OSError as exc:
+            self._append_log(f"无法保存路径配置：{exc}")
+
     def _browse_install(self):
-        path = filedialog.askdirectory(title="选择 S2Arm 项目安装目录（例如 E:\\ProjectIOS\\S2Arm）")
+        current = self.install_var.get().strip()
+        path = filedialog.askdirectory(title=self._t("选择 S2Arm 项目安装目录（例如 E:\\ProjectIOS\\S2Arm）"),
+            initialdir=current if current and Path(current).is_dir() else None)
         if path:
             self.install_var.set(path)
+            self._save_config()
+
+    def _browse_library(self):
+        current = self.library_var.get().strip()
+        path = filedialog.askdirectory(title=self._t("选择游戏库根目录"),
+            initialdir=current if current and Path(current).is_dir() else None)
+        if path:
+            self.library_var.set(path)
+            self._save_config()
 
     def _browse_game(self):
-        path = filedialog.askdirectory(title="选择游戏名目录（例如 E:\\nisshell\\S2\\games\\the 1st）")
+        current = self.library_var.get().strip()
+        path = filedialog.askdirectory(title=self._t("选择游戏名目录（例如 E:\\nisshell\\S2\\games\\the 1st）"),
+            initialdir=current if current and Path(current).is_dir() else None)
         if not path:
             return
         game_dir = Path(path)
