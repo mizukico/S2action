@@ -34,7 +34,6 @@ TEXT = {
     "en": {
         "读取 game.json 的 Title ID，自动拼接 RomFS，并生成可直接解压到 iPhone games 文件夹的 ZIP": "Read the Title ID from game.json, materialize RomFS, and create a ZIP ready for the iPhone games folder.",
         "S2Arm 项目安装目录": "S2Arm installation directory",
-        "游戏库根目录": "Game library root directory",
         "已构建游戏目录（游戏名这一层）": "Built game directory (game-name folder)",
         "ZIP 输出目录（默认游戏目录）": "ZIP output directory (defaults to game folder)",
         "自动读取的 Title ID": "Detected Title ID",
@@ -48,7 +47,7 @@ TEXT = {
         "目录不完整": "Missing directories", "请选择 S2Arm 项目目录、游戏名目录和 ZIP 输出目录。": "Select the S2Arm installation, game, and ZIP output directories.",
         "资源包目录不存在": "Resource pack directory not found", "游戏信息错误": "Invalid game information",
         "覆盖现有 ZIP？": "Overwrite existing ZIP?", "是否覆盖已有文件？": "Overwrite the existing file?",
-        "正在处理……": "Processing...", "完成": "Completed", "失败": "Failed",
+        "正在处理……": "Processing...", "正在取消……": "Cancelling...", "取消打包": "Cancel packaging", "已取消": "Cancelled", "完成": "Completed", "失败": "Failed",
         "打包完成": "Packaging complete", "资源包已生成：": "Resource pack created:", "打包失败": "Packaging failed"
     }
 }
@@ -179,7 +178,7 @@ def read_imgmap(path: Path, expected_count: int):
     return total, offsets
 
 
-def prepare_and_materialize(source: Path, stage: Path, rows, native, log):
+def prepare_and_materialize(source: Path, stage: Path, rows, native, log, cancel_event=None):
     image_rows = {p: (size, digest) for p, size, digest in rows if p.endswith("romfs.img")}
     if not image_rows:
         raise PackError("index.tsv 中没有 romfs.img，无法拼接 RomFS。")
@@ -189,6 +188,7 @@ def prepare_and_materialize(source: Path, stage: Path, rows, native, log):
 
     # Copy/link all indexed files except romfs.img, which is generated below.
     for i, (rel, size, _digest) in enumerate(rows, 1):
+        check_cancel(cancel_event)
         if rel.endswith("romfs.img"):
             continue
         src = source.joinpath(*PurePosixPath(rel).parts)
@@ -216,6 +216,7 @@ def prepare_and_materialize(source: Path, stage: Path, rows, native, log):
         needed = [entry[2] for entry, offset in zip(files, offsets) if offset >= 0]
         log(f"{prefix or '主程序'}RomFS：索引 {len(files)} 项，需拼接 {len(needed)} 个文件")
         for rel in needed:
+            check_cancel(cancel_event)
             rel = safe_rel(rel)
             fragment = source.joinpath(
                 *PurePosixPath(prefix + "romfs.files/" + rel).parts
@@ -232,6 +233,7 @@ def prepare_and_materialize(source: Path, stage: Path, rows, native, log):
         log(f"调用 S2Arm materialize()：{rel_img}")
 
         def progress(done, name=rel_img, total=size):
+            check_cancel(cancel_event)
             log(f"  {name}: {done / (1024 ** 3):.2f} / {total / (1024 ** 3):.2f} GiB")
 
         native.materialize(str(stage), rel_img, size, digest, say=log, progress=progress)
@@ -243,7 +245,17 @@ def prepare_and_materialize(source: Path, stage: Path, rows, native, log):
         log(f"RomFS 校验通过：{rel_img}")
 
 
-def build_zip(game_dir: Path, install_root: Path, output_dir: Path, log):
+class CancelledPackError(Exception):
+    pass
+
+
+def check_cancel(cancel_event):
+    if cancel_event is not None and cancel_event.is_set():
+        raise CancelledPackError("用户已取消打包。")
+
+
+def build_zip(game_dir: Path, install_root: Path, output_dir: Path, log, cancel_event=None):
+    check_cancel(cancel_event)
     title_id = read_title_id(game_dir)
     source = game_dir / "image" / "ios" / "pack"
     if not source.is_dir():
@@ -256,59 +268,74 @@ def build_zip(game_dir: Path, install_root: Path, output_dir: Path, log):
     with tempfile.TemporaryDirectory(prefix="s2arm_packager_", dir=str(output_dir)) as temp:
         stage = Path(temp) / "资源包"
         stage.mkdir()
+        temp_zip = Path(temp) / output.name
         log(f"游戏目录：{game_dir}")
         log(f"Title ID：{title_id}（game.json）")
         log(f"资源包目录：{source}")
         log(f"manifest version：{manifest.get('version')}；索引文件：{len(rows)}")
-        prepare_and_materialize(source, stage, rows, native, log)
+        prepare_and_materialize(source, stage, rows, native, log, cancel_event)
 
-        # Check every indexed path exists and has its indexed size.
-        for rel, size, _digest in rows:
+        for i, (rel, size, _digest) in enumerate(rows, 1):
+            check_cancel(cancel_event)
             path = stage.joinpath(*PurePosixPath(rel).parts)
             if not path.is_file():
                 raise PackError(f"打包前文件缺失：{rel}")
             if path.stat().st_size != size:
                 raise PackError(f"打包前文件大小不符：{rel}")
+            if i % 500 == 0:
+                log(f"打包前检查：{i}/{len(rows)}")
 
-        if output.exists():
-            output.unlink()
         root = f"{title_id}/资源包"
         count = 0
         log(f"生成 ZIP（不压缩，保留 ZIP64）：{output}")
-        with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as zf:
+        with zipfile.ZipFile(temp_zip, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as zf:
             zf.writestr(f"{title_id}/", b"")
             zf.writestr(root + "/", b"")
             for path in sorted(stage.rglob("*")):
+                check_cancel(cancel_event)
                 if not path.is_file():
                     continue
                 relative = path.relative_to(stage)
-                # Fragments are temporary inputs to materialize; romfs.img replaces them.
                 if "romfs.files" in relative.parts:
                     continue
-                rel = relative.as_posix()
-                zf.write(path, f"{root}/{rel}")
+                arcname = f"{root}/{relative.as_posix()}"
+                with path.open("rb") as src, zf.open(arcname, "w", force_zip64=True) as dst:
+                    while True:
+                        check_cancel(cancel_event)
+                        block = src.read(CHUNK)
+                        if not block:
+                            break
+                        dst.write(block)
                 count += 1
-                if count % 500 == 0:
+                if count % 100 == 0:
                     log(f"ZIP 已写入 {count} 个文件")
 
+        check_cancel(cancel_event)
         log("检查 ZIP 完整性……")
-        with zipfile.ZipFile(output, "r") as zf:
+        with zipfile.ZipFile(temp_zip, "r") as zf:
+            names = zf.namelist()
+            for i, _name in enumerate(names, 1):
+                check_cancel(cancel_event)
+                if i % 500 == 0:
+                    log(f"ZIP 检查：{i}/{len(names)}")
             bad = zf.testzip()
             if bad:
                 raise PackError(f"ZIP 完整性检查失败：{bad}")
-            names = set(zf.namelist())
+            name_set = set(names)
             required = {f"{root}/index.tsv", f"{root}/manifest.json"}
-            missing = required - names
+            missing = required - name_set
             if missing:
                 raise PackError("ZIP 缺少必要文件：" + ", ".join(sorted(missing)))
             for rel, _, _ in rows:
-                if f"{root}/{rel}" not in names:
+                check_cancel(cancel_event)
+                if f"{root}/{rel}" not in name_set:
                     raise PackError(f"ZIP 缺少索引文件：{rel}")
-            if any("romfs.files" in PurePosixPath(name).parts for name in names):
+            if any("romfs.files" in PurePosixPath(name).parts for name in name_set):
                 raise PackError("最终 ZIP 不应包含 romfs.files 分片目录。")
+        check_cancel(cancel_event)
+        os.replace(temp_zip, output)
         log(f"完成：{count} 个文件；ZIP 大小 {output.stat().st_size / (1024 ** 3):.2f} GiB")
     return output
-
 
 class App:
     def __init__(self, root):
@@ -320,8 +347,6 @@ class App:
         self.events = queue.Queue()
         self.running = False
         self.install_var = tk.StringVar(value=r"E:\ProjectIOS\S2Arm")
-        self.library_var = tk.StringVar(value=str(Path.home() / "S2Arm" / "games"))
-        self.lang = "zh"
         self.game_var = tk.StringVar()
         self._load_config()
         self.output_dir_var = tk.StringVar()
@@ -358,15 +383,14 @@ class App:
         form = ttk.Frame(outer)
         form.pack(fill="x")
         self._path_row(form, 0, "S2Arm 项目安装目录", self.install_var, self._browse_install, persist=True)
-        self._path_row(form, 1, "游戏库根目录", self.library_var, self._browse_library, persist=True)
-        self._path_row(form, 2, "已构建游戏目录（游戏名这一层）", self.game_var, self._browse_game)
-        self._path_row(form, 3, "ZIP 输出目录（默认游戏目录）", self.output_dir_var, self._browse_output)
-        ttk.Label(form, text=self._t("自动读取的 Title ID")).grid(row=4, column=0, sticky="w", pady=7)
+        self._path_row(form, 1, "已构建游戏目录（游戏名这一层）", self.game_var, self._browse_game)
+        self._path_row(form, 2, "ZIP 输出目录（默认游戏目录）", self.output_dir_var, self._browse_output)
+        ttk.Label(form, text=self._t("自动读取的 Title ID")).grid(row=3, column=0, sticky="w", pady=7)
         ttk.Entry(form, textvariable=self.title_var, state="readonly").grid(
-            row=4, column=1, sticky="ew", padx=8, pady=7
+            row=3, column=1, sticky="ew", padx=8, pady=7
         )
         ttk.Label(form, text=self._t("来源：所选游戏目录/game.json → id"), foreground="#777").grid(
-            row=4, column=2, sticky="w", pady=7
+            row=3, column=2, sticky="w", pady=7
         )
         form.columnconfigure(1, weight=1)
 
@@ -380,6 +404,8 @@ class App:
         bottom.pack(fill="x", pady=(10, 0))
         self.status = tk.StringVar(value=self._t("等待选择目录"))
         ttk.Label(bottom, textvariable=self.status).pack(side="left")
+        self.cancel_button = ttk.Button(bottom, text=self._t("取消打包"), command=self._cancel, state="disabled")
+        self.cancel_button.pack(side="right", padx=(8, 0))
         self.run_button = ttk.Button(bottom, text=self._t("开始拼接并生成 ZIP"), command=self._start)
         self.run_button.pack(side="right")
 
@@ -396,7 +422,6 @@ class App:
             data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
             if isinstance(data, dict):
                 self.install_var.set(str(data.get("install_root") or self.install_var.get()))
-                self.library_var.set(str(data.get("game_library_root") or self.library_var.get()))
                 saved_lang = data.get("language")
                 if saved_lang in ("zh", "en"):
                     self.lang = saved_lang
@@ -404,9 +429,7 @@ class App:
             pass
 
     def _save_config(self):
-        data = {"install_root": self.install_var.get().strip(),
-                "game_library_root": self.library_var.get().strip(),
-                "language": self.lang}
+        data = {"install_root": self.install_var.get().strip(), "language": self.lang}
         try:
             CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
             temp_path = CONFIG_PATH.with_suffix(".tmp")
@@ -423,16 +446,8 @@ class App:
             self.install_var.set(path)
             self._save_config()
 
-    def _browse_library(self):
-        current = self.library_var.get().strip()
-        path = filedialog.askdirectory(title=self._t("选择游戏库根目录"),
-            initialdir=current if current and Path(current).is_dir() else None)
-        if path:
-            self.library_var.set(path)
-            self._save_config()
-
     def _browse_game(self):
-        current = self.library_var.get().strip()
+        current = self.game_var.get().strip()
         path = filedialog.askdirectory(title=self._t("选择游戏名目录（例如 E:\\nisshell\\S2\\games\\the 1st）"),
             initialdir=current if current and Path(current).is_dir() else None)
         if not path:
@@ -493,7 +508,9 @@ class App:
             return
 
         self.running = True
+        self.cancel_event = threading.Event()
         self.run_button.configure(state="disabled")
+        self.cancel_button.configure(state="normal")
         self.progress.start(12)
         self.status.set(self._t("正在处理……"))
         self._append_log("========== 开始 ==========")
@@ -503,12 +520,21 @@ class App:
 
         def worker():
             try:
-                result = build_zip(game_dir, install_root, output_dir, self._log)
+                result = build_zip(game_dir, install_root, output_dir, self._log, self.cancel_event)
                 self.events.put(("done", str(result)))
+            except CancelledPackError as exc:
+                self.events.put(("cancelled", str(exc)))
             except Exception as exc:
                 self.events.put(("error", str(exc)))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _cancel(self):
+        if self.running and self.cancel_event:
+            self.cancel_event.set()
+            self.cancel_button.configure(state="disabled")
+            self.status.set(self._t("正在取消……"))
+            self._append_log("已请求取消，将在当前处理步骤可中断时停止。")
 
     def _append_log(self, message):
         self.log_text.configure(state="normal")
@@ -522,14 +548,19 @@ class App:
                 kind, value = self.events.get_nowait()
                 if kind == "log":
                     self._append_log(value)
-                elif kind in ("done", "error"):
+                elif kind in ("done", "error", "cancelled"):
                     self.running = False
                     self.progress.stop()
                     self.run_button.configure(state="normal")
+                    self.cancel_button.configure(state="disabled")
                     if kind == "done":
                         self.status.set(self._t("完成"))
                         self._append_log("========== 全部完成 ==========")
                         messagebox.showinfo(self._t("打包完成"), f"资源包已生成：\n{value}")
+                    elif kind == "cancelled":
+                        self.status.set(self._t("已取消"))
+                        self._append_log("========== 已取消 ==========")
+                        messagebox.showinfo(self._t("已取消"), value)
                     else:
                         self.status.set(self._t("失败"))
                         self._append_log("错误：" + value)
