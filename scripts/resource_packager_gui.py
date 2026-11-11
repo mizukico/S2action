@@ -152,6 +152,18 @@ LOG_TRANSLATIONS = {
 def localize_log(message: str, lang: str) -> str:
     if lang != "en":
         return message
+
+    # Dynamic lines emitted when the user selects a game directory.
+    match = re.fullmatch(r"Title ID：([0-9A-Fa-f]{16})（来自 game\\.json）", message)
+    if match:
+        return f"Title ID: {match.group(1)} (from game.json)"
+    match = re.fullmatch(r"已定位资源包目录：(.*)", message)
+    if match:
+        return f"Resource pack directory found: {match.group(1)}"
+    match = re.fullmatch(r"未找到预期资源包目录：(.*)", message)
+    if match:
+        return f"Expected resource pack directory not found: {match.group(1)}"
+
     for source, target in sorted(LOG_TRANSLATIONS.items(), key=lambda item: len(item[0]), reverse=True):
         message = message.replace(source, target)
     return message
@@ -657,8 +669,10 @@ class App:
             self._append_log(self._localize_log("已请求取消，将在当前处理步骤可中断时停止。"))
 
     def _append_log(self, message):
+        # Localize at the UI boundary, including logs emitted by GUI actions.
+        message = self._localize_log(str(message))
         self.log_text.configure(state="normal")
-        self.log_text.insert("end", f"[{time.strftime('%H:%M:%S')}] {message}\n")
+        self.log_text.insert("end", f"[{time.strftime('%H:%M:%S')}] {message}\\n")
         self.log_text.see("end")
         self.log_text.configure(state="disabled")
 
