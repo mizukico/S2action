@@ -104,6 +104,16 @@ def localize_log(message: str, lang: str) -> str:
         (r"无法保存路径配置：(.*)", lambda m: f"Unable to save path configuration: {m.group(1)}"),
         (r"找不到：(.*)", lambda m: f"Not found: {m.group(1)}"),
         (r"缺少固定目录：\s*(.*)", lambda m: f"Required directory is missing:\n{m.group(1)}"),
+        (r"imgmap 格式错误：(.*)", lambda m: f"Invalid imgmap format: {m.group(1)}"),
+        (r"imgmap 文件数或长度不匹配：(.*)", lambda m: f"imgmap file count or length mismatch: {m.group(1)}"),
+        (r"只支持 manifest version 2，当前为 (.*)", lambda m: f"Only manifest version 2 is supported; current version: {m.group(1)}"),
+        (r"index\.tsv 有重复路径：(.*)", lambda m: f"index.tsv contains a duplicate path: {m.group(1)}"),
+        (r"index\.tsv 不是 UTF-8：(.*)", lambda m: f"index.tsv is not UTF-8: {m.group(1)}"),
+        (r"资源包缺少索引文件：(.*)", lambda m: f"Resource pack is missing indexed file: {m.group(1)}"),
+        (r"文件大小与 index\.tsv 不符：(.*)", lambda m: f"File size does not match index.tsv: {m.group(1)}"),
+        (r"文件大小无效", lambda m: "Invalid file size"),
+        (r"大小或 SHA256 无效：(.*)", lambda m: f"Invalid size or SHA256: {m.group(1)}"),
+        (r"找不到 S2Arm 原生脚本或依赖.*", lambda m: "S2Arm native scripts or dependencies were not found. Select the S2Arm installation directory containing Engine/pack/romfs_image.py and Engine/tools/sha256_fast.py."),
         (r"错误：", lambda m: "Error:"),
     )
     for pattern, render in patterns:
@@ -156,6 +166,18 @@ def localize_log(message: str, lang: str) -> str:
     }
     if message in exact:
         return exact[message]
+
+    match = re.fullmatch(r"调用 S2Arm materialize\(\)：(.*)", message)
+    if match:
+        return f"Calling S2Arm materialize(): {match.group(1)}"
+    match = re.fullmatch(r"(.*)缺少 romfs\.s2aidx 或 romfs\.imgmap。", message)
+    if match:
+        prefix = "Main program " if match.group(1) == "" else match.group(1)
+        return f"{prefix}is missing romfs.s2aidx or romfs.imgmap."
+    match = re.fullmatch(r"(.*)imgmap 镜像长度与 index\.tsv 不一致。", message)
+    if match:
+        prefix = "Main program " if match.group(1) == "" else match.group(1)
+        return f"{prefix}imgmap image size does not match index.tsv."
 
     # Structured progress lines produced by this script.
     match = re.fullmatch(r"(.*)RomFS：索引 (\d+) 项，需拼接 (\d+) 个文件", message)
