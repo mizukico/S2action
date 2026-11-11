@@ -55,6 +55,92 @@ TEXT = {
 def tr(value: str, lang: str = "zh") -> str:
     return TEXT.get(lang, {}).get(value, value)
 
+
+LOG_TRANSLATIONS = {
+    "游戏目录": "Game directory",
+    "Title ID": "Title ID",
+    "来自 game.json": "from game.json",
+    "资源包目录": "Resource pack directory",
+    "manifest version": "Manifest version",
+    "索引文件": "indexed files",
+    "已准备索引文件": "Prepared indexed files",
+    "缺少 romfs.s2aidx 或 romfs.imgmap": "Missing romfs.s2aidx or romfs.imgmap",
+    "imgmap 格式错误": "Invalid imgmap format",
+    "imgmap 文件数或长度不匹配": "imgmap file count or length mismatch",
+    "imgmap 镜像长度与 index.tsv 不一致": "imgmap image size does not match index.tsv",
+    "主程序": "Main program",
+    "RomFS：索引": "RomFS: indexed ",
+    "项，需拼接": " entries; ",
+    "个文件": " files to assemble",
+    "调用 S2Arm materialize()": "Calling S2Arm materialize()",
+    "RomFS 校验通过": "RomFS verification passed",
+    "找不到固定资源包目录": "Resource pack directory not found",
+    "打包前检查": "Pre-packaging check",
+    "打包前文件缺失": "File missing before packaging",
+    "打包前文件大小不符": "File size mismatch before packaging",
+    "生成 ZIP（不压缩，保留 ZIP64）": "Creating ZIP (stored, ZIP64 enabled)",
+    "ZIP 已写入": "ZIP entries written",
+    "检查 ZIP 完整性": "Checking ZIP integrity",
+    "ZIP 检查": "ZIP check",
+    "ZIP 完整性校验": "ZIP integrity verification",
+    "ZIP 缺少必要文件": "ZIP is missing required files",
+    "ZIP 缺少索引文件": "ZIP is missing indexed file",
+    "最终 ZIP 不应包含 romfs.files 分片目录": "Final ZIP must not contain romfs.files fragments",
+    "完成": "Completed",
+    "个文件；ZIP 大小": " files; ZIP size",
+    "已定位资源包目录": "Resource pack directory found",
+    "未找到预期资源包目录": "Expected resource pack directory not found",
+    "收到取消请求，将在当前处理步骤可中断时停止。": "Cancellation requested. The operation will stop at the next safe checkpoint.",
+    "已请求取消，将在当前处理步骤可中断时停止。": "Cancellation requested. The operation will stop at the next safe checkpoint.",
+    "========== 开始 ==========": "========== START ==========",
+    "========== 全部完成 ==========": "========== COMPLETED ==========",
+    "========== 已取消 ==========": "========== CANCELLED ==========",
+    "ZIP 文件名": "ZIP filename",
+    "ZIP 输出路径": "ZIP output path",
+    "错误": "Error",
+    "资源包已生成": "Resource pack created",
+    "无法保存路径配置": "Unable to save configuration",
+    "游戏目录缺少 game.json": "Game folder is missing game.json",
+    "game.json 无法解析": "Unable to parse game.json",
+    "game.json 顶层 id 字段不是有效的 16 位十六进制 Title ID": "The top-level id field in game.json is not a valid 16-digit hexadecimal Title ID",
+    "资源索引包含不安全路径": "Resource index contains an unsafe path",
+    "资源索引包含盘符路径": "Resource index contains a drive-letter path",
+    "缺少 index.tsv 或 manifest.json": "Missing index.tsv or manifest.json",
+    "manifest.json 无法解析": "Unable to parse manifest.json",
+    "只支持 manifest version 2，当前为": "Only manifest version 2 is supported; current version:",
+    "index.tsv SHA256 与 manifest.json 不一致": "index.tsv SHA256 does not match manifest.json",
+    "不是三列格式": "does not contain exactly three columns",
+    "文件大小无效": "has an invalid file size",
+    "大小或 SHA256 无效": "has an invalid size or SHA256",
+    "有重复路径": "contains a duplicate path",
+    "不是 UTF-8": "is not UTF-8",
+    "找不到 S2Arm 原生脚本或依赖": "S2Arm native scripts or dependencies not found",
+    "请选择 S2Arm 项目安装目录": "Select the S2Arm installation directory",
+    "其中应有": "It must contain",
+    "无法加载原生脚本": "Unable to load native script",
+    "缺少 parse_index() 或 materialize()": "Missing parse_index() or materialize()",
+    "没有 romfs.img，无法拼接 RomFS": "No romfs.img found in index.tsv; cannot assemble RomFS",
+    "资源包缺少索引文件": "Resource pack is missing indexed file",
+    "文件大小与 index.tsv 不符": "File size does not match index.tsv",
+    "RomFS 分片缺失": "RomFS fragment is missing",
+    "拼接后的镜像大小不正确": "Assembled image has an incorrect size",
+    "拼接后的镜像 SHA256 不正确": "Assembled image SHA256 is incorrect",
+    "用户已取消打包": "Packaging was cancelled by the user",
+    "找不到": "Not found",
+    "缺少固定目录": "Required directory is missing",
+    "缺少": "Missing",
+    "无法读取游戏信息": "Unable to read game information",
+    "无法读取游戏信息": "Unable to read game information",
+}
+
+
+def localize_log(message: str, lang: str) -> str:
+    if lang != "en":
+        return message
+    for source, target in sorted(LOG_TRANSLATIONS.items(), key=lambda item: len(item[0]), reverse=True):
+        message = message.replace(source, target)
+    return message
+
 TITLE_RE = re.compile(r"^[0-9A-Fa-f]{16}$")
 CHUNK = 4 * 1024 * 1024
 CONFIG_PATH = Path(__file__).resolve().with_name("resource_packager_gui.config.json")
@@ -372,6 +458,9 @@ class App:
     def _t(self, value):
         return tr(value, self.lang)
 
+    def _localize_log(self, message):
+        return localize_log(str(message), self.lang)
+
     def _switch_language(self, _event=None):
         self.lang = "en" if self.lang_combo.get() == "English" else "zh"
         self._save_config()
@@ -479,11 +568,11 @@ class App:
         self.title_var.set(title_id)
         self.output_dir_var.set(str(game_dir))
         pack_dir = game_dir / "image" / "ios" / "pack"
-        self._log(f"Title ID：{title_id}（来自 game.json）")
+        self._log(self._localize_log(f"Title ID：{title_id}（来自 game.json）"))
         if pack_dir.is_dir():
-            self._log(f"已定位资源包目录：{pack_dir}")
+            self._log(self._localize_log(f"已定位资源包目录：{pack_dir}"))
         else:
-            self._log(f"未找到预期资源包目录：{pack_dir}")
+            self._log(self._localize_log(f"未找到预期资源包目录：{pack_dir}"))
             messagebox.showwarning(self._t("未找到资源包"), f"缺少固定目录：\n{pack_dir}")
 
     def _browse_output(self):
@@ -528,19 +617,19 @@ class App:
         self.cancel_button.configure(state="normal")
         self.progress.start(12)
         self.status.set(self._t("正在处理……"))
-        self._append_log("========== 开始 ==========")
-        self._append_log(f"ZIP 文件名：{output.name}")
-        self._append_log(f"ZIP 输出路径：{output}")
-        self._append_log(f"Title ID：{title_id}")
+        self._append_log(self._localize_log("========== 开始 =========="))
+        self._append_log(self._localize_log(f"ZIP 文件名：{output.name}"))
+        self._append_log(self._localize_log(f"ZIP 输出路径：{output}"))
+        self._append_log(self._localize_log(f"Title ID：{title_id}"))
 
         def worker():
             try:
-                result = build_zip(game_dir, install_root, output_dir, self._log, self.cancel_event)
+                result = build_zip(game_dir, install_root, output_dir, lambda msg: self._log(self._localize_log(msg)), self.cancel_event)
                 self.events.put(("done", str(result)))
             except CancelledPackError as exc:
-                self.events.put(("cancelled", str(exc)))
+                self.events.put(("cancelled", self._localize_log(str(exc))))
             except Exception as exc:
-                self.events.put(("error", str(exc)))
+                self.events.put(("error", self._localize_log(str(exc))))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -549,7 +638,7 @@ class App:
             self.cancel_event.set()
             self.cancel_button.configure(state="disabled")
             self.status.set(self._t("正在取消……"))
-            self._append_log("已请求取消，将在当前处理步骤可中断时停止。")
+            self._append_log(self._localize_log("已请求取消，将在当前处理步骤可中断时停止。"))
 
     def _append_log(self, message):
         self.log_text.configure(state="normal")
@@ -570,15 +659,15 @@ class App:
                     self.cancel_button.configure(state="disabled")
                     if kind == "done":
                         self.status.set(self._t("完成"))
-                        self._append_log("========== 全部完成 ==========")
+                        self._append_log(self._localize_log("========== 全部完成 =========="))
                         messagebox.showinfo(self._t("打包完成"), f"资源包已生成：\n{value}")
                     elif kind == "cancelled":
                         self.status.set(self._t("已取消"))
-                        self._append_log("========== 已取消 ==========")
+                        self._append_log(self._localize_log("========== 已取消 =========="))
                         messagebox.showinfo(self._t("已取消"), value)
                     else:
                         self.status.set(self._t("失败"))
-                        self._append_log("错误：" + value)
+                        self._append_log(self._localize_log("错误：") + value)
                         messagebox.showerror(self._t("打包失败"), value)
         except queue.Empty:
             pass
