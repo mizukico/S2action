@@ -749,7 +749,7 @@ class App:
         # Localize at the UI boundary, including logs emitted by GUI actions.
         message = self._localize_log(str(message))
         self.log_text.configure(state="normal")
-        self.log_text.insert("end", f"[{time.strftime('%H:%M:%S')}] {message}\\n")
+        self.log_text.insert("end", f"[{time.strftime('%H:%M:%S')}] {message}\n")
         self.log_text.see("end")
         self.log_text.configure(state="disabled")
 
