@@ -29,14 +29,14 @@ APP_TITLE = "S2Arm Resource Packager"
 TEXT = {
     "zh": {},
     "en": {
-        "读取 game.json 的 Title ID，校验 S2Arm 已生成的 game.img，并生成可直接解压到 iPhone games 文件夹的 ZIP": "Read the Title ID from game.json, verify the prebuilt game.img, and create a ZIP ready for the iPhone games folder.",
-        "S2Arm 项目安装目录": "S2Arm installation directory",
+        "读取 game.json 的 Title ID，直接校验并打包 S2Arm v0.3.3 已生成的 game.img，不再二次拼接": "Read the Title ID from game.json and package S2Arm v0.3.3 game.img directly; no second assembly is performed.",
+        "S2Arm 项目安装目录（可选）": "S2Arm project directory (optional)",
         "已构建游戏目录（游戏名这一层）": "Built game directory (game-name folder)",
         "ZIP 输出目录（默认游戏目录）": "ZIP output directory (defaults to game folder)",
         "自动读取的 Title ID": "Detected Title ID",
         "来源：所选游戏目录/game.json → id": "Source: selected game folder/game.json → id",
         "执行日志": "Execution log", "等待选择目录": "Select the directories to begin",
-        "校验资源包并生成 ZIP": "Verify pack and create ZIP", "浏览…": "Browse...",
+        "校验并打包 game.img": "Verify and package game.img", "浏览…": "Browse...",
         "选择 S2Arm 项目安装目录（例如 E:\\\\ProjectIOS\\\\S2Arm）": "Select the S2Arm project directory (not required for packaging)",
         "选择游戏名目录（例如 E:\\\\nisshell\\\\S2\\\\games\\\\the 1st）": "Select the built game folder",
         "选择 ZIP 输出目录（默认是游戏目录）": "Select ZIP output directory",
@@ -523,7 +523,7 @@ class App:
 
         form = ttk.Frame(outer)
         form.pack(fill="x")
-        self._path_row(form, 0, "S2Arm 项目安装目录", self.install_var, self._browse_install, persist=True)
+        self._path_row(form, 0, "S2Arm 项目目录（可选，不参与打包）", self.install_var, self._browse_install, persist=True)
         self._path_row(form, 1, "已构建游戏目录（游戏名这一层）", self.game_var, self._browse_game)
         self._path_row(form, 2, "ZIP 输出目录（默认游戏目录）", self.output_dir_var, self._browse_output)
         ttk.Label(form, text=self._t("自动读取的 Title ID")).grid(row=3, column=0, sticky="w", pady=7)
@@ -647,8 +647,8 @@ class App:
         install_root = Path(self.install_var.get().strip())
         game_text = self.game_var.get().strip()
         output_text = self.output_dir_var.get().strip()
-        if not install_root.is_dir() or not game_text or not Path(game_text).is_dir() or not output_text:
-            messagebox.showwarning(self._t("目录不完整"), self._t("请选择 S2Arm 项目目录、游戏名目录和 ZIP 输出目录。"))
+        if not game_text or not Path(game_text).is_dir() or not output_text:
+            messagebox.showwarning(self._t("目录不完整"), self._t("请选择游戏名目录和 ZIP 输出目录。"))
             return
         game_dir = Path(game_text)
         output_dir = Path(output_text)
