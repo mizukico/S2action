@@ -99,7 +99,7 @@ def localize_log(message: str, lang: str) -> str:
         (r"拼接后的镜像大小不正确：(.*)", lambda m: f"Assembled image has an incorrect size: {m.group(1)}"),
         (r"拼接后的镜像 SHA256 不正确：(.*)", lambda m: f"Assembled image SHA256 is incorrect: {m.group(1)}"),
         (r"找不到 S2Arm 原生脚本或依赖。请选择 S2Arm 项目安装目录，其中应有 Engine/pack/romfs_image\.py 和 Engine/tools/sha256_fast\.py。",
-         lambda m: "S2Arm native scripts or dependencies were not found. Select the S2Arm installation directory containing Engine/pack/romfs_image.py and Engine/tools/sha256_fast.py."),
+         lambda m: "S2Arm native scripts or dependencies were not found. Select the S2Arm installation directory containing pack/romfs_image.py and tools/sha256_fast.py."),
         (r"无法加载原生脚本：(.*)", lambda m: f"Unable to load the native script: {m.group(1)}"),
         (r"无法保存路径配置：(.*)", lambda m: f"Unable to save path configuration: {m.group(1)}"),
         (r"找不到：(.*)", lambda m: f"Not found: {m.group(1)}"),
@@ -113,7 +113,7 @@ def localize_log(message: str, lang: str) -> str:
         (r"文件大小与 index\.tsv 不符：(.*)", lambda m: f"File size does not match index.tsv: {m.group(1)}"),
         (r"文件大小无效", lambda m: "Invalid file size"),
         (r"大小或 SHA256 无效：(.*)", lambda m: f"Invalid size or SHA256: {m.group(1)}"),
-        (r"找不到 S2Arm 原生脚本或依赖.*", lambda m: "S2Arm native scripts or dependencies were not found. Select the S2Arm installation directory containing Engine/pack/romfs_image.py and Engine/tools/sha256_fast.py."),
+        (r"找不到 S2Arm 原生脚本或依赖.*", lambda m: "S2Arm native scripts or dependencies were not found. Select the S2Arm installation directory containing pack/romfs_image.py and tools/sha256_fast.py."),
         (r"game\.json 顶层 id 字段不是有效的 16 位十六进制 Title ID。", lambda m: "The top-level id field in game.json is not a valid 16-digit hexadecimal Title ID."),
         (r"image/ios/pack 缺少 index\.tsv 或 manifest\.json。", lambda m: "image/ios/pack is missing index.tsv or manifest.json."),
         (r"index\.tsv 中没有 romfs\.img，无法拼接 RomFS。", lambda m: "No romfs.img entry was found in index.tsv; cannot assemble RomFS."),
@@ -334,16 +334,34 @@ def read_index(pack: Path):
 
 
 def load_native(install_root: Path):
-    engine = install_root / "Engine"
-    script = engine / "pack" / "romfs_image.py"
-    tools = engine / "tools"
-    if not script.is_file() or not (tools / "sha256_fast.py").is_file():
+    # Current S2Arm source layout is <repo>/pack + <repo>/tools.
+    # Keep the former Engine/ layout as a compatibility fallback for older installs.
+    layouts = (
+        (install_root / "pack", install_root / "tools"),
+        (install_root / "Engine" / "pack", install_root / "Engine" / "tools"),
+    )
+    selected = next(
+        (
+            (pack_dir, tools_dir)
+            for pack_dir, tools_dir in layouts
+            if (pack_dir / "romfs_image.py").is_file()
+            and (tools_dir / "sha256_fast.py").is_file()
+        ),
+        None,
+    )
+    if selected is None:
         raise PackError(
-            "找不到 S2Arm 原生脚本或依赖。请选择 S2Arm 项目安装目录，"
-            "其中应有 Engine/pack/romfs_image.py 和 Engine/tools/sha256_fast.py。"
+            "找不到 S2Arm 原生脚本或依赖。请选择 S2Arm 项目根目录，"
+            "其中应有 pack/romfs_image.py 和 tools/sha256_fast.py。"
         )
-    if str(tools) not in sys.path:
-        sys.path.insert(0, str(tools))
+
+    pack_dir, tools_dir = selected
+    # romfs_image.py imports sha256_fast from the matching tools directory.
+    for directory in (str(tools_dir), str(pack_dir)):
+        if directory not in sys.path:
+            sys.path.insert(0, directory)
+
+    script = pack_dir / "romfs_image.py"
     spec = importlib.util.spec_from_file_location("s2arm_romfs_image", script)
     if spec is None or spec.loader is None:
         raise PackError(f"无法加载原生脚本：{script}")
@@ -354,7 +372,6 @@ def load_native(install_root: Path):
     ):
         raise PackError("romfs_image.py 缺少 parse_index() 或 materialize()。")
     return module
-
 
 def link_or_copy(src: Path, dst: Path, cancel_event=None):
     check_cancel(cancel_event)
