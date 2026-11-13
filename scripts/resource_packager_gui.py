@@ -98,7 +98,7 @@ def localize_log(message: str, lang: str) -> str:
         (r"RomFS 分片缺失：(.*)", lambda m: f"RomFS fragment is missing: {m.group(1)}"),
         (r"拼接后的镜像大小不正确：(.*)", lambda m: f"Assembled image has an incorrect size: {m.group(1)}"),
         (r"拼接后的镜像 SHA256 不正确：(.*)", lambda m: f"Assembled image SHA256 is incorrect: {m.group(1)}"),
-        (r"找不到 S2Arm 原生脚本或依赖。请选择 S2Arm 项目安装目录，其中应有 Engine/pack/romfs_image\.py 和 Engine/tools/sha256_fast\.py。",
+        (r"找不到 S2Arm 原生脚本或依赖。请选择 S2Arm 项目安装目录，其中应有 pack/romfs_image\.py 和 tools/sha256_fast\.py。",
          lambda m: "S2Arm native scripts or dependencies were not found. Select the S2Arm installation directory containing pack/romfs_image.py and tools/sha256_fast.py."),
         (r"无法加载原生脚本：(.*)", lambda m: f"Unable to load the native script: {m.group(1)}"),
         (r"无法保存路径配置：(.*)", lambda m: f"Unable to save path configuration: {m.group(1)}"),
