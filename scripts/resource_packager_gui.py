@@ -3,22 +3,19 @@
 """S2Arm Resource Packager GUI.
 
 Select the S2Arm installation root and a built game directory. The tool reads
-Title ID from game.json, finds image/ios/pack, materializes RomFS with the
-S2Arm pack/romfs_image.py, then writes <GameName>_pack.zip.
+Title ID from game.json, finds image/ios/pack, verifies the prebuilt game.img from S2Arm v0.3.3, then writes <GameName>_pack.zip.
 The ZIP contains <TitleID>/资源包/ and can be extracted into the corresponding game folder.
 Python 3.10+; standard library only.
 """
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 import json
 import os
 import queue
 import re
 import shutil
 import struct
-import sys
 import tempfile
 import threading
 import time
@@ -99,7 +96,7 @@ def localize_log(message: str, lang: str) -> str:
         (r"拼接后的镜像大小不正确：(.*)", lambda m: f"Assembled image has an incorrect size: {m.group(1)}"),
         (r"拼接后的镜像 SHA256 不正确：(.*)", lambda m: f"Assembled image SHA256 is incorrect: {m.group(1)}"),
         (r"找不到 S2Arm 原生脚本或依赖。请选择 S2Arm 项目安装目录，其中应有 pack/romfs_image\.py 和 tools/sha256_fast\.py。",
-         lambda m: "S2Arm native scripts or dependencies were not found. Select the S2Arm installation directory containing pack/romfs_image.py and tools/sha256_fast.py."),
+         lambda m: "S2Arm native scripts or dependencies were not found. Select the S2Arm project directory (kept for compatibility; not needed to package) containing pack/romfs_image.py and tools/sha256_fast.py."),
         (r"无法加载原生脚本：(.*)", lambda m: f"Unable to load the native script: {m.group(1)}"),
         (r"无法保存路径配置：(.*)", lambda m: f"Unable to save path configuration: {m.group(1)}"),
         (r"找不到：(.*)", lambda m: f"Not found: {m.group(1)}"),
@@ -317,7 +314,7 @@ def read_index(pack: Path):
         for line_no, line in enumerate(raw.decode("utf-8").splitlines(), 1):
             if not line:
                 continue
-            cols = line.split("\\t")
+            cols = line.split("\t")
             if len(cols) != 3:
                 raise PackError(f"index.tsv 第 {line_no} 行不是三列格式。")
             rel, size_text, digest = safe_rel(cols[0]), cols[1], cols[2].strip().lower()
@@ -357,7 +354,7 @@ def verify_source_pack(source: Path, rows, title_id: str, log, cancel_event=None
     try:
         magic, fmt, _reserved, gid, pid, _ro, _rl, _to, _tl, total = struct.unpack("<8sII16s64s5Q", header)
         image_gid = gid.decode("ascii")
-        image_pack_id = pid.rstrip(b"\\0").decode("ascii")
+        image_pack_id = pid.rstrip(b"\0").decode("ascii")
     except (struct.error, UnicodeDecodeError) as exc:
         raise PackError(f"game.img 文件头无法解析：{exc}")
     if magic != b"S2AIMG01" or fmt != 1:
