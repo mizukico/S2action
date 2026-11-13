@@ -4,8 +4,8 @@
 
 Select the S2Arm installation root and a built game directory. The tool reads
 Title ID from game.json, finds image/ios/pack, materializes RomFS with the
-installed S2Arm Engine/pack/romfs_image.py, then writes <GameName>_pack.zip.
-The ZIP root is <TitleID>/ so it can be extracted directly into Documents/games.
+S2Arm pack/romfs_image.py, then writes <GameName>_pack.zip.
+The ZIP contains <TitleID>/资源包/ and can be extracted into the corresponding game folder.
 Python 3.10+; standard library only.
 """
 from __future__ import annotations
